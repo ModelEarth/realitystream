@@ -93,7 +93,7 @@ This dataset was sourced directly from the [**USDA Quick Stats**](https://quicks
 
 ## How to Use
 1. **Open the Notebook** in Google Colab:
-   - [Colab Link](https://colab.research.google.com/drive/1X04_N4E-WpcNRrolB2VgnvMfa8It99ZW?usp=sharing)
+   - [BeeDensityTopCounties Colab Link](https://colab.research.google.com/drive/1X04_N4E-WpcNRrolB2VgnvMfa8It99ZW?usp=sharing)
 2. **Run All Code Cells**:
    - The script will automatically load and process the data.
 3. **Modify the bee-data**:
