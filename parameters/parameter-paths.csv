@@ -2,4 +2,5 @@
 parameters.yaml,https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters.yaml
 Parameters for years,https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters-years.yaml
 Industries by zip code,https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters-zip.yaml
+Google Data Commons Test,https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters-gdc-state.yaml
 Eye Blinks,https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters-blinks.yaml
