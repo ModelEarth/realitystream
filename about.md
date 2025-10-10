@@ -94,34 +94,11 @@ The features.path and targets.path will have several shorthand versions and a fu
 **full** - https://github.com/ModelEarth/bee-data/raw/main/targets/bees-targets-top-20-percent.csv
 
 
-
 **Path processing rules:**
 If there's no slash / in a path parameter, start from the root of the RealityStream repo.
 If the file extension is omitted from a path, append .csv.
 For a target value of "bees" build the path "/bee-data/targets/bees-targets-top-20-percent.csv"
 Replace a space with -targets- in the path.
 So for a target value of "bees increase2024" build the path "/bee-data/targets/bees-targets-increase2024.csv"
-
-## Projects
-
-Replace TO DO with your name as you work on a project.  
-Write Loren when you've submitted a pull request to show your name.  
-Update related .ipynb and app.py file to also add your name.
-
-1. DONE: Generate features-importance reports for available models - Melody and Yogesh.
-2. DONE: Add a comparison process for accuracy reports into one table for viewing. - Melody
-3. IN PROGRESS: Send files to Github - Yogesh
-
-Additional TO DO's reside at the top of the [Run Models colab](https://colab.research.google.com/drive/1zu0WcCiIJ5X3iN1Hd1KSW4dGn0JuodB8?usp=sharing).
-
-
-## Project Workflow Development Plan
-
-Beyond the machine learning Colab notebook, our goal is to build a complete workflow for this project, featuring a JavaScript user interface for the frontend, a backend service (potentially Flask) to execute the script, and the Colab notebook itself.
-
-**Project Structure**
-1. Frontend (JavaScript): A web-based interface that allows users to trigger actions and interact with the workflow.
-2. Backend (Flask or similar): A service to process requests from the frontend and execute the Colab notebook's logic.
-3. Colab Notebook: A machine learning notebook hosted in Google Colab or converted into an executable Python script for integration.
 
 
