@@ -1,0 +1,23 @@
+folder: gdc-bees-alabama-experiment
+
+features:
+  #This section tells the notebook to get features from the Google Data Commons API.
+  #We are using the V3 function that correctly finds all counties in a state.
+  dcid:
+    - geoId/01 #Alabama (This state code matches the FIPS codes in the bee data target file)
+  
+  #These are the demographic variables we want to use as our predictive features.
+  variables:
+    - Count_Person
+    - Median_Income_Person
+    - Percent_Person_With_Bachelors_Degree_Or_Higher
+    
+  #We'll use the most recent, complete year for this data.
+  year: 2020
+
+targets:
+  path: https://raw.githubusercontent.com/ModelEarth/bee-data/main/targets/bees-targets-top-20-percent.csv
+
+models:
+  - rfc
+  - xgboost

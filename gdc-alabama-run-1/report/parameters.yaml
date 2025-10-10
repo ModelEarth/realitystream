@@ -1,0 +1,14 @@
+folder: gdc-bees-alabama-experiment
+features:
+  dcid:
+  - geoId/01
+  variables:
+  - Count_Person
+  - Median_Income_Person
+  - Percent_Person_With_Bachelors_Degree_Or_Higher
+  year: 2020
+targets:
+  path: https://raw.githubusercontent.com/ModelEarth/bee-data/main/targets/bees-targets-top-20-percent.csv
+models:
+- RFC
+- XGBoost
