@@ -44,6 +44,6 @@ Features: types of industries, education levels, employment levels, population d
 **Wage Growth** - Increases in local pay levels
 Features: types of industries, education levels, employment levels, population density, environmental indicators
 
-Notes on how [we push files to GitHub](/localsite/start/steps/github-token/)
+Notes on how [we push files to GitHub](../../../localsite/start/steps/github-token/)
 
 
