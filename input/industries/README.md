@@ -8,10 +8,7 @@ Backup resides at realitystream/models/Run-Models-bkup.ipynb
 
 **GPU SUPPORT using cuML** In your browser, when using the Run Models notebook, change the runtime type to get the latest speedups from cuML.
 
-Data prep for [Industry Features and Targets](../../../data-pipeline/timelines)
-
-- Send report files to Github as last step in Run Models colab - DONE
-- Fetch an index.html file from a Github link and send it to the report folder. - DONE
+Data prep for [Industry Features and Targets](https://model.earth/data-pipeline/) - [Bee Density](https://model.earth/bee-data/) - [Tree Canopy](https://model.earth/tree-canopy/)
 
 ## Features Data
 
