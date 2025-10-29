@@ -13,7 +13,15 @@
 <!-- Load required scripts before the loadMarkdown calls -->
 <script src="https://cdn.jsdelivr.net/npm/js-yaml@4/dist/js-yaml.min.js"></script>
 
-<script src="../cloud/run/js/param-input.js"></script>
+<script>
+let externalSite = "https://model.earth"; // Since cloud repo is not always a submodule.
+if (location.host.indexOf('localhost') >= 0) {
+  externalSite = "..";
+}
+loadScript(externalSite + '/cloud/run/js/param-input.js', function(results) {
+  loadBaseParamsSelect(); // Resides in cloud/run/js/param-input.js
+});
+</script>
 
 
 <style>
@@ -38,7 +46,7 @@ button {
 
 
 <script>
-loadBaseParamsSelect(); // Resides in cloud/run/js/param-input.js
+
 loadMarkdown("README.md", "readmeDiv", "_parent");
 loadMarkdown("about.md", "aboutDiv", "_parent");
 loadMarkdown("input/blinks/README.md", "blinksDiv", "_parent");
