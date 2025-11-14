@@ -1,12 +1,8 @@
 folder: mof-optimization
-features: !!python/object/apply:collections.OrderedDict
-- - - data
-    - mof_properties
-  - - note
-    - MOF material properties with optimal classification
-  - - path
-    - realitystream_data\mof-integrated-dataset.csv
-targets: !!python/object/apply:collections.OrderedDict
-- - - column
-    - Target
+features:
+  data: mof_properties
+  note: MOF material properties with optimal classification
+  path: realitystream_data\mof-integrated-dataset.csv
+targets:
+  column: Target
 models: all

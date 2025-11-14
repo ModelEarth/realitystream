@@ -1,18 +1,11 @@
 folder: datacenter-locations-mof
-features: !!python/object/apply:collections.OrderedDict
-- - - data
-    - atmospheric_conditions
-  - - common
-    - Fips
-  - - note
-    - Atmospheric conditions and MOF performance by county
-  - - state
-    - NV,CA,TX,AZ,UT
-  - - path
-    - realitystream_data\features\mof-features.csv
-targets: !!python/object/apply:collections.OrderedDict
-- - - data
-    - optimal_location
-  - - path
-    - realitystream_data\targets\mof-targets-water-uptake.csv
+features:
+  data: atmospheric_conditions
+  common: Fips
+  note: Atmospheric conditions and MOF performance by county
+  state: NV,CA,TX,AZ,UT
+  path: https://raw.githubusercontent.com/ModelEarth/grid/main/water/capture/mof/features/mof-features.csv
+targets:
+  data: optimal_location
+  path: https://raw.githubusercontent.com/ModelEarth/grid/main/water/capture/mof/targets/mof-targets-water-uptake.csv
 models: rbf,rfc,xgboost
