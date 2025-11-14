@@ -3,8 +3,8 @@ features:
   data: mof_materials
   common: Fips
   note: MOF materials for atmospheric water capture at data center locations
-  path: input/mof_materials/features/mof-features.csv
+  path: https://raw.githubusercontent.com/varunsripad123/realitystream/main/input/mof_materials/features/mof-features.csv
 targets:
   data: water_uptake
-  path: input/mof_materials/targets/mof-targets-water-uptake.csv
+  path: https://raw.githubusercontent.com/varunsripad123/realitystream/main/input/mof_materials/targets/mof-targets-water-uptake.csv
 models: rbf,rfc,xgboost
