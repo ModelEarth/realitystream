@@ -1,0 +1,10 @@
+folder: mof-water-capture-features-targets
+features:
+  data: mof_materials
+  common: Fips
+  note: MOF materials for atmospheric water capture at data center locations
+  path: https://raw.githubusercontent.com/ModelEarth/grid/main/water/capture/mof/features/mof-features.csv
+targets:
+  data: water_uptake
+  path: https://raw.githubusercontent.com/ModelEarth/grid/main/water/capture/mof/targets/mof-targets-water-uptake.csv
+models: rbf,rfc,xgboost

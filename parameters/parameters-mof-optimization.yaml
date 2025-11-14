@@ -1,0 +1,8 @@
+folder: mof-optimization
+features:
+  data: mof_properties
+  note: MOF material properties with optimal classification
+  path: realitystream_data\mof-integrated-dataset.csv
+targets:
+  column: Target
+models: all
