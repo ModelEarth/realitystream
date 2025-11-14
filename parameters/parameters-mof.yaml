@@ -7,10 +7,10 @@ features: !!python/object/apply:collections.OrderedDict
   - - note
     - MOF materials for atmospheric water capture at data center locations
   - - path
-    - realitystream_data\features\mof-features.csv
+    - input/mof_materials/features/mof-features.csv
 targets: !!python/object/apply:collections.OrderedDict
 - - - data
     - water_uptake
   - - path
-    - realitystream_data\targets\mof-targets-water-uptake.csv
+    - input/mof_materials/targets/mof-targets-water-uptake.csv
 models: rbf,rfc,xgboost
