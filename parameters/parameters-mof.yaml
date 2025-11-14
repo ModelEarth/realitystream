@@ -1,16 +1,10 @@
 folder: mof-water-capture-features-targets
-features: !!python/object/apply:collections.OrderedDict
-- - - data
-    - mof_materials
-  - - common
-    - Fips
-  - - note
-    - MOF materials for atmospheric water capture at data center locations
-  - - path
-    - input/mof_materials/features/mof-features.csv
-targets: !!python/object/apply:collections.OrderedDict
-- - - data
-    - water_uptake
-  - - path
-    - input/mof_materials/targets/mof-targets-water-uptake.csv
+features:
+  data: mof_materials
+  common: Fips
+  note: MOF materials for atmospheric water capture at data center locations
+  path: input/mof_materials/features/mof-features.csv
+targets:
+  data: water_uptake
+  path: input/mof_materials/targets/mof-targets-water-uptake.csv
 models: rbf,rfc,xgboost
