@@ -5,3 +5,6 @@ Google Data Commons (GDC),https://raw.githubusercontent.com/ModelEarth/RealitySt
 Industries by Zip Code,https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters-zip.yaml
 Eye Blinks,https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters-blinks.yaml
 Bee All-Years (MN),https://raw.githubusercontent.com/ThousifMd/realitystream/main/parameters/parameters-all-years-bees-MN.yaml
+MOF Water Capture (Features & Targets),https://raw.githubusercontent.com/varunsripad123/realitystream/main/parameters/parameters-mof.yaml
+MOF Water Capture (Datacenter Locations),https://raw.githubusercontent.com/varunsripad123/realitystream/main/parameters/parameters-datacenter-locations.yaml
+MOF Water Capture (Optimization),https://raw.githubusercontent.com/varunsripad123/realitystream/main/parameters/parameters-mof-optimization.yaml
