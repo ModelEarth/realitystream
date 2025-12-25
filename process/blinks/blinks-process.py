@@ -15,7 +15,7 @@ def check_directory(directory_path):
 
 dataset_name = "blinks"
 target_name = "y"
-df = pd.read_csv(f'../../input/{dataset_name}/targets/{dataset_name}-targets.csv')
+df = pd.read_csv(f'../../input/{dataset_name}/features/{dataset_name}-features.csv')
 
 df = df.dropna()
 X = df.drop(target_name, axis=1)

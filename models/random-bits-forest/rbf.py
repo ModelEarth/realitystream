@@ -28,7 +28,7 @@ random_state = 100
 
 # Split 70% of the data into training and 30% into test sets. Call them x_train, x_test, y_train and y_test.
 # Use the train_test_split method in sklearn with the parameter 'shuffle' set to true and the 'random_state' set to 100.
-x_train, x_test, y_train, y_test = train_test_split(x_data, y_data, test_size=0.3, shuffle='true', random_state=random_state)
+x_train, x_test, y_train, y_test = train_test_split(x_data, y_data, test_size=0.3, shuffle='True', random_state=random_state)
 
 # ##############################################Linear Regression ###################################################
 # Create a LinearRegression classifier and train it.
