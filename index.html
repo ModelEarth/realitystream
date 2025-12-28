@@ -374,9 +374,17 @@ function writeCsvParam(p, key, list) {
     removeBtn.style.fontSize = '12px';
     removeBtn.style.background = '#777';
 
-    removeBtn.addEventListener('click', () => {
-      removeItem(item.id);
-    });
+   // ✅ prevent the click from triggering drag behavior
+removeBtn.draggable = false;
+removeBtn.addEventListener('mousedown', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+});
+removeBtn.addEventListener('click', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  removeItem(item.id);
+});
 
     right.appendChild(removeBtn);
     el.appendChild(left);
@@ -425,6 +433,7 @@ function writeCsvParam(p, key, list) {
   }
 
   function moveItem(id, from, to) {
+    isSyncingYaml = true;
     if (from === to) return;
 
     let item = null;
@@ -453,6 +462,7 @@ function writeCsvParam(p, key, list) {
       state.features.push(item);
     }
 
+     isSyncingYaml = false;
     render();
   }
 
@@ -535,6 +545,8 @@ if (featureDcids.length === 0) {
   // --- Initialize with something (optional) ---
   // This can read existing YAML and prefill cards later.
   function refreshFromYaml() {
+    if (hasConsumedIncoming) return;
+
   const paramTextDiv = document.getElementById('paramText');
   const preTag = paramTextDiv ? paramTextDiv.querySelector('pre') : null;
   if (!preTag || !window.jsyaml) return;
@@ -603,8 +615,16 @@ if (featureDcids.length === 0) {
 // }
 
   document.addEventListener('DOMContentLoaded', () => {
-  setupDropZone('rsFeaturesDrop', 'features');
-  setupDropZone('rsTargetDrop', 'target');
+  // Features drop targets
+setupDropZone('rsFeaturesDrop', 'features');
+setupDropZone('rsFeaturesList', 'features');
+setupDropZone('rsFeaturesEmpty', 'features');
+
+// Target drop targets
+setupDropZone('rsTargetDrop', 'target');
+setupDropZone('rsTargetList', 'target');
+setupDropZone('rsTargetEmpty', 'target');
+
 const p0 = getHashParams();
 const savedFeatures = readCsvParam(p0, 'rs_features'); // comma separated
 const savedTarget = (p0.get('rs_target') || '').trim();
