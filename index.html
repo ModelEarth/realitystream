@@ -248,17 +248,27 @@ Edit your yaml above and paste into our <a href="input/industries/">Run Models C
   }
 
   // Keep existing hash params + add rs_role & rs_source, then navigate
-  function rsNavigateWithHash(destPath, source) {
-    const role = rsGetSelectedRole();
-    const h = (window.location.hash || '').replace(/^#/, '');
-    const p = new URLSearchParams(h);
+  // Keep existing hash params + add rs_role & rs_source, then navigate
+function rsNavigateWithHash(destPath, source) {
+  const role = rsGetSelectedRole();
 
-    p.set('rs_role', role);
-    p.set('rs_source', source);
-
-    rsCloseAddPopup();
-    window.location.href = destPath + '#' + p.toString();
+ 
+  if (role === 'target' && window.rsHasTarget && window.rsHasTarget()) {
+    alert('Only 1 target is allowed. Remove the current target first.');
+    return;
   }
+
+  const h = (window.location.hash || '').replace(/^#/, '');
+  const p = new URLSearchParams(h);
+
+  p.set('rs_role', role);
+  p.set('rs_source', source);
+
+  rsCloseAddPopup();
+  window.location.href = destPath + '#' + p.toString();
+}
+
+
 
   document.addEventListener('DOMContentLoaded', function() {
     const addBtn = document.getElementById('addBtn');
@@ -301,6 +311,10 @@ let isSyncingYaml = false;
 let yamlRefreshTimer = null;
 let hasConsumedIncoming = false;
 let hasSeenBaseYaml = false;
+
+window.rsHasTarget = function () {
+  return !!(state.target && state.target.dcid);
+};
 
 
   function uid() {
@@ -443,39 +457,53 @@ removeBtn.addEventListener('click', (e) => {
     render();
   }
 
-  function moveItem(id, from, to) {
-    isSyncingYaml = true;
-    if (from === to) return;
+ function moveItem(id, from, to) {
+  if (from === to) return;
 
-    let item = null;
+  let item = null;
 
-    if (from === 'features') {
-      const idx = state.features.findIndex(x => x.id === id);
-      if (idx >= 0) {
-        item = state.features[idx];
-        state.features.splice(idx, 1);
-      }
-    } else if (from === 'target') {
-      if (state.target && state.target.id === id) {
-        item = state.target;
-        state.target = null;
-      }
+  // Remove from source
+  if (from === 'features') {
+    const idx = state.features.findIndex(x => x.id === id);
+    if (idx >= 0) {
+      item = state.features[idx];
+      state.features.splice(idx, 1);
     }
-
-    if (!item) return;
-
-    if (to === 'target') {
-      // only 1 target: if target already exists, push it back into features
-      if (state.target) state.features.unshift(state.target);
-      state.target = item;
-    } else {
-      // moving into features: append
-      state.features.push(item);
+  } else if (from === 'target') {
+    if (state.target && state.target.id === id) {
+      item = state.target;
+      state.target = null;
     }
-
-     isSyncingYaml = false;
-    render();
   }
+
+  if (!item) return;
+
+  // Drop into destination
+  if (to === 'target') {
+    // don’t allow replacing an existing target
+    if (state.target) {
+      alert('Only 1 target is allowed. Remove the current target first.');
+
+      // put the item back where it came from
+      if (from === 'features') state.features.push(item);
+      else state.target = item;
+
+      // keep hash consistent too
+      syncHashFromState();
+      render(false); // don’t rewrite YAML here
+      return;
+    }
+    state.target = item;
+  } else {
+    state.features.push(item);
+  }
+
+  
+  syncHashFromState();
+
+  render(); // will sync YAML
+}
+
 
   function setupDropZone(zoneId, role) {
     const zone = document.getElementById(zoneId);
@@ -673,19 +701,26 @@ const initialPreText = preTag ? preTag.textContent : '';
   });
 
   window.rsAddSelection = function(role, dcid, label) {
-    const item = { id: uid(), dcid, label: label || dcid };
-    if (role === 'target') {
-      if (state.target) state.features.unshift(state.target);
-      state.target = item;
-   } else {
-  // prevent duplicates
-  const exists = state.features.some(x => x.dcid === dcid);
-  if (!exists) state.features.push(item);
-}
-syncHashFromState();
-render();
+  const item = { id: uid(), dcid, label: label || dcid };
 
-  };
+  if (role === 'target') {
+   
+    if (state.target) {
+      alert('Only 1 target is allowed. Remove the current target first.');
+      return;
+    }
+    state.target = item;
+
+  } else {
+    // prevent duplicates
+    const exists = state.features.some(x => x.dcid === dcid);
+    if (!exists) state.features.push(item);
+  }
+
+  syncHashFromState();
+  render();
+};
+
 function consumeIncomingDcidFromHash() {
   const p = getHashParams();
 
@@ -704,10 +739,18 @@ function consumeIncomingDcidFromHash() {
   if (role === 'targets') role = 'target';
 
   if (role === 'target') {
-    // only 1 target (take first)
-    const dcid = incomingList[0];
-    p.set('rs_target', dcid);
-    window.rsAddSelection('target', dcid, dcid);
+   if (state.target && state.target.dcid) {
+    alert('Only 1 target is allowed. Remove the current target first.');
+
+    // ✅ very important: don’t keep re-triggering
+    p.delete('rs_dcid');
+    setHashParams(p);
+    return true;
+  }
+
+  const dcid = incomingList[0];
+  p.set('rs_target', dcid);
+  window.rsAddSelection('target', dcid, dcid);
   } else {
     // append ALL incoming to rs_features
     const current = readCsvParam(p, 'rs_features');
