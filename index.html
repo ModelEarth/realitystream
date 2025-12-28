@@ -12,6 +12,32 @@
 
 <!-- Load required scripts before the loadMarkdown calls -->
 <script src="https://cdn.jsdelivr.net/npm/js-yaml@4/dist/js-yaml.min.js"></script>
+<script>
+(function normalizeIncomingFromTimeline() {
+  const h = (window.location.hash || '').replace(/^#/, '');
+  if (!h) return;
+
+  const p = new URLSearchParams(h);
+
+  // If timeline sends features.dcid/targets.dcid, move to rs_dcid so param-input.js won't override YAML.
+  const incoming =
+    p.get('rs_dcid') ||
+    p.get('features.dcid') ||
+    p.get('targets.dcid');
+
+  if (incoming && !p.get('rs_dcid')) {
+    p.set('rs_dcid', incoming);
+  }
+
+  // IMPORTANT: remove these so param-input.js cannot overwrite YAML based on them
+  p.delete('features.dcid');
+  p.delete('targets.dcid');
+
+  const newHash = p.toString();
+  const newUrl = window.location.pathname + window.location.search + (newHash ? '#' + newHash : '');
+  window.history.replaceState(null, '', newUrl);
+})();
+</script>
 
 <script>
 let externalSite = "https://model.earth"; // Since cloud repo is not always a submodule.
@@ -71,20 +97,99 @@ View <a href="../reports/">Report Output</a> (Under Development) - View <a href=
 
 <select id="parambase"></select><br>
 
-<div id="paramText" class="codetext" rows="10" contenteditable><pre>
-<b>folder:</b> naics6-bees-counties
+<div id="addControls" style="margin-top:10px; display:flex; gap:10px; align-items:center;">
+  <button id="addBtn" type="button">+ Add</button>
+</div>
 
-<b>features:</b>
+<!-- Popup -->
+<div id="rsAddBackdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.15); z-index:9998;"></div>
+
+<div id="rsAddPopup" style="display:none; position:fixed; top:120px; left:50%; transform:translateX(-50%);
+  width:360px; background:#fff; border:1px solid #ddd; border-radius:10px; padding:12px; z-index:9999; box-shadow:0 10px 25px rgba(0,0,0,0.15);">
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <div style="font-weight:600;">Add dataset</div>
+    <button id="rsAddClose" type="button" style="border:none; background:transparent; font-size:18px; cursor:pointer;">×</button>
+  </div>
+
+  <div style="margin-top:10px; font-size:13px; color:#444;">I am adding:</div>
+  <div style="display:flex; gap:12px; margin-top:6px;">
+    <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+      <input type="radio" name="rs_role" value="features" checked> Features
+    </label>
+    <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+      <input type="radio" name="rs_role" value="target"> Target
+    </label>
+  </div>
+
+  <div style="margin-top:12px; font-size:13px; color:#444;">Select from:</div>
+
+  <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px;">
+    <button id="rsAddTimelines" type="button"
+      style="text-align:left; padding:10px; border-radius:8px; border:1px solid #ddd; background:#f8f8f8; cursor:pointer;">
+      Google Data Commons Timelines
+      <div style="font-size:12px; color:#666; margin-top:2px;">Go to timeline picker</div>
+    </button>
+
+    <button id="rsAddNaics" type="button"
+      style="text-align:left; padding:10px; border-radius:8px; border:1px solid #ddd; background:#f8f8f8; cursor:pointer;">
+      US Industry NAICS Data
+      <div style="font-size:12px; color:#666; margin-top:2px;">Go to NAICS picker</div>
+    </button>
+  </div>
+</div>
+
+<div id="rsPickers" style="margin: 10px 0 12px 0; display:flex; gap:14px; flex-wrap:wrap;">
+  <!-- FEATURES -->
+  <div style="flex:1; min-width:320px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+      <div style="font-weight:600;">Features</div>
+      <span style="font-size:12px; color:#666;">Drag rows to Target</span>
+    </div>
+
+    <div id="rsFeaturesDrop"
+      style="border:1px solid #ddd; border-radius:10px; padding:10px; background:#fafafa; min-height:74px;">
+      <div id="rsFeaturesList" style="display:flex; flex-direction:column; gap:8px;"></div>
+      <div id="rsFeaturesEmpty" style="font-size:12px; color:#777; margin-top:6px;">
+        No features selected yet.
+      </div>
+    </div>
+  </div>
+
+  <!-- TARGET -->
+  <div style="flex:1; min-width:320px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+      <div style="font-weight:600;">Target</div>
+      <span style="font-size:12px; color:#666;">Drop 1 row here</span>
+    </div>
+
+    <div id="rsTargetDrop"
+      style="border:1px solid #ddd; border-radius:10px; padding:10px; background:#fafafa; min-height:74px;">
+      <div id="rsTargetList" style="display:flex; flex-direction:column; gap:8px;"></div>
+      <div id="rsTargetEmpty" style="font-size:12px; color:#777; margin-top:6px;">
+        No target selected yet.
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<div id="paramText" class="codetext" contenteditable>
+<pre>
+folder: naics6-bees-counties
+
+features:
   data: industries
   common: Fips
   path: https://raw.githubusercontent.com/ModelEarth/community-timelines/main/training/naics6/US/counties/2020/US-ME-training-naics6-counties-2020.csv
 
-<b>targets:</b>
+targets:
   data: bees
   path: https://raw.githubusercontent.com/ModelEarth/bee-data/main/targets/bees-targets-top-20-percent.csv
 
-<b>models:</b> xgboost
-</pre></div>Edit your yaml above and paste into our <a href="input/industries/">Run Models CoLab</a>.<br><br>
+models: xgboost
+</pre>
+</div>
+Edit your yaml above and paste into our <a href="input/industries/">Run Models CoLab</a>.<br><br>
 
 
   <div id="aboutDiv"></div>
@@ -126,6 +231,497 @@ View <a href="../reports/">Report Output</a> (Under Development) - View <a href=
 <div id="proj"></div>
 
 </div>
+<script>
+  function rsOpenAddPopup() {
+    document.getElementById('rsAddPopup').style.display = 'block';
+    document.getElementById('rsAddBackdrop').style.display = 'block';
+  }
+
+  function rsCloseAddPopup() {
+    document.getElementById('rsAddPopup').style.display = 'none';
+    document.getElementById('rsAddBackdrop').style.display = 'none';
+  }
+
+  function rsGetSelectedRole() {
+    const chosen = document.querySelector('input[name="rs_role"]:checked');
+    return chosen ? chosen.value : 'features';
+  }
+
+  // Keep existing hash params + add rs_role & rs_source, then navigate
+  function rsNavigateWithHash(destPath, source) {
+    const role = rsGetSelectedRole();
+    const h = (window.location.hash || '').replace(/^#/, '');
+    const p = new URLSearchParams(h);
+
+    p.set('rs_role', role);
+    p.set('rs_source', source);
+
+    rsCloseAddPopup();
+    window.location.href = destPath + '#' + p.toString();
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    const addBtn = document.getElementById('addBtn');
+    const closeBtn = document.getElementById('rsAddClose');
+    const backdrop = document.getElementById('rsAddBackdrop');
+    const btnTimelines = document.getElementById('rsAddTimelines');
+    const btnNaics = document.getElementById('rsAddNaics');
+
+    if (addBtn) addBtn.addEventListener('click', rsOpenAddPopup);
+    if (closeBtn) closeBtn.addEventListener('click', rsCloseAddPopup);
+    if (backdrop) backdrop.addEventListener('click', rsCloseAddPopup);
+
+    // Destination pages:
+    // - Timelines picker: localsite timeline page
+    // - NAICS picker: localsite info page (your current “features” link)
+    if (btnTimelines) btnTimelines.addEventListener('click', function() {
+      rsNavigateWithHash('/localsite/timeline/', 'timelines');
+    });
+
+    if (btnNaics) btnNaics.addEventListener('click', function() {
+      rsNavigateWithHash('/localsite/info', 'naics');
+    });
+
+    // ESC closes popup
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') rsCloseAddPopup();
+    });
+  });
+</script>
+
+
+
+<script>
+(function() {
+  const state = {
+    features: [], // array of { id, dcid, label }
+    target: null // { id, dcid, label } or null
+  };
+let isSyncingYaml = false;
+let yamlRefreshTimer = null;
+let hasConsumedIncoming = false;
+let hasSeenBaseYaml = false;
+
+
+  function uid() {
+    return 'id_' + Math.random().toString(16).slice(2);
+  }
+
+  function getHashParams() {
+  const h = (window.location.hash || '').replace(/^#/, '');
+  return new URLSearchParams(h);
+}
+
+function setHashParams(p) {
+  const newHash = p.toString();
+  history.replaceState(null, '', window.location.pathname + window.location.search + (newHash ? '#' + newHash : ''));
+}
+
+function readCsvParam(p, key) {
+  const v = (p.get(key) || '').trim();
+  if (!v) return [];
+  return v.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+function writeCsvParam(p, key, list) {
+  const unique = Array.from(new Set(list.map(s => s.trim()).filter(Boolean)));
+  if (!unique.length) p.delete(key);
+  else p.set(key, unique.join(','));
+}
+
+
+  function createRowCard(item, role) {
+    const el = document.createElement('div');
+    el.className = 'rsRowCard';
+    el.draggable = true;
+    el.dataset.id = item.id;
+    el.dataset.role = role;
+
+    el.style.display = 'flex';
+    el.style.alignItems = 'center';
+    el.style.justifyContent = 'space-between';
+    el.style.gap = '10px';
+    el.style.padding = '10px';
+    el.style.border = '1px solid #ddd';
+    el.style.borderRadius = '10px';
+    el.style.background = '#fff';
+    el.style.cursor = 'grab';
+
+    const left = document.createElement('div');
+    left.style.display = 'flex';
+    left.style.flexDirection = 'column';
+
+    const title = document.createElement('div');
+    title.style.fontWeight = '600';
+    title.textContent = item.label || item.dcid;
+
+    const sub = document.createElement('div');
+    sub.style.fontSize = '12px';
+    sub.style.color = '#666';
+    sub.textContent = item.dcid;
+
+    left.appendChild(title);
+    left.appendChild(sub);
+
+    const right = document.createElement('div');
+    right.style.display = 'flex';
+    right.style.gap = '8px';
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.textContent = 'Remove';
+    removeBtn.style.padding = '6px 10px';
+    removeBtn.style.fontSize = '12px';
+    removeBtn.style.background = '#777';
+
+    removeBtn.addEventListener('click', () => {
+      removeItem(item.id);
+    });
+
+    right.appendChild(removeBtn);
+    el.appendChild(left);
+    el.appendChild(right);
+
+    el.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/plain', JSON.stringify({
+        id: item.id,
+        from: role
+      }));
+      // optional visual hint
+      setTimeout(() => el.style.opacity = '0.6', 0);
+    });
+
+    el.addEventListener('dragend', () => {
+      el.style.opacity = '1';
+    });
+
+    return el;
+  }
+
+ function render(shouldSyncYaml = true) {
+  const fList = document.getElementById('rsFeaturesList');
+  const tList = document.getElementById('rsTargetList');
+  const fEmpty = document.getElementById('rsFeaturesEmpty');
+  const tEmpty = document.getElementById('rsTargetEmpty');
+
+  fList.innerHTML = '';
+  tList.innerHTML = '';
+
+  state.features.forEach(item => fList.appendChild(createRowCard(item, 'features')));
+  if (state.target) tList.appendChild(createRowCard(state.target, 'target'));
+
+  fEmpty.style.display = state.features.length ? 'none' : 'block';
+  tEmpty.style.display = state.target ? 'none' : 'block';
+
+  if (shouldSyncYaml) syncYamlFromState();
+}
+
+
+
+  function removeItem(id) {
+    state.features = state.features.filter(x => x.id !== id);
+    if (state.target && state.target.id === id) state.target = null;
+    render();
+  }
+
+  function moveItem(id, from, to) {
+    if (from === to) return;
+
+    let item = null;
+
+    if (from === 'features') {
+      const idx = state.features.findIndex(x => x.id === id);
+      if (idx >= 0) {
+        item = state.features[idx];
+        state.features.splice(idx, 1);
+      }
+    } else if (from === 'target') {
+      if (state.target && state.target.id === id) {
+        item = state.target;
+        state.target = null;
+      }
+    }
+
+    if (!item) return;
+
+    if (to === 'target') {
+      // only 1 target: if target already exists, push it back into features
+      if (state.target) state.features.unshift(state.target);
+      state.target = item;
+    } else {
+      // moving into features: append
+      state.features.push(item);
+    }
+
+    render();
+  }
+
+  function setupDropZone(zoneId, role) {
+    const zone = document.getElementById(zoneId);
+    zone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      zone.style.borderColor = '#4CAF50';
+    });
+    zone.addEventListener('dragleave', () => {
+      zone.style.borderColor = '#ddd';
+    });
+    zone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      zone.style.borderColor = '#ddd';
+      try {
+        const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+        moveItem(data.id, data.from, role);
+      } catch (err) {
+        console.warn('Bad drag data', err);
+      }
+    });
+  }
+
+  // --- YAML sync (simple, safe approach) ---
+  // This updates features.dcid / targets.dcid in YAML based on UI.
+  function syncYamlFromState() {
+    
+    const paramTextDiv = document.getElementById('paramText');
+    const preTag = paramTextDiv ? paramTextDiv.querySelector('pre') : null;
+    
+    if (!preTag || !window.jsyaml) return;
+
+    isSyncingYaml = true;
+
+    let yamlObj;
+    try {
+      yamlObj = jsyaml.load(preTag.textContent) || {};
+    } catch (e) {
+      return; // if YAML is mid-edit and invalid, don't break anything
+    }
+
+    // Ensure objects exist
+    yamlObj.features = yamlObj.features || {};
+    yamlObj.targets = yamlObj.targets || {};
+
+    // For now:
+    // - features.dcid supports either string (single) or array (multiple)
+    // - targets.dcid single string
+ const featureDcids = state.features.map(x => x.dcid);
+
+if (featureDcids.length === 0) {
+  delete yamlObj.features.dcid;
+} else {
+  // ✅ always store as comma-separated string
+  yamlObj.features.dcid = featureDcids.join(', ');
+}
+
+
+
+    if (!state.target) {
+      delete yamlObj.targets.dcid;
+    } else {
+      yamlObj.targets.dcid = state.target.dcid;
+    }
+
+    const newYaml = jsyaml.dump(yamlObj, { lineWidth: -1, noCompatMode: true });
+    preTag.textContent = newYaml;
+    setTimeout(() => { isSyncingYaml = false; }, 0);
+
+  }
+
+
+  function looksLikeBaseYamlLoaded(preText) {
+  if (!preText) return false;
+  // any one of these is enough to know param-input has written a real YAML
+  return preText.includes('folder:') || preText.includes('features:') || preText.includes('targets:') || preText.includes('models:');
+}
+
+  // --- Initialize with something (optional) ---
+  // This can read existing YAML and prefill cards later.
+  function refreshFromYaml() {
+  const paramTextDiv = document.getElementById('paramText');
+  const preTag = paramTextDiv ? paramTextDiv.querySelector('pre') : null;
+  if (!preTag || !window.jsyaml) return;
+
+  if (isSyncingYaml) return;
+
+  // ✅ If the hash already has rs_features, do NOT rebuild features from YAML.
+  const p = getHashParams();
+  const hashFeatures = readCsvParam(p, 'rs_features');
+  const hashTarget = (p.get('rs_target') || '').trim();
+
+  try {
+    const yamlObj = jsyaml.load(preTag.textContent) || {};
+
+    // Only rebuild features from YAML when hash doesn't control them
+    if (!hashFeatures.length) {
+      const f = yamlObj.features && yamlObj.features.dcid;
+      const newFeatures = [];
+
+      if (Array.isArray(f)) {
+        f.forEach(dcid => {
+          if (typeof dcid === 'string' && dcid.trim()) {
+            newFeatures.push({ id: uid(), dcid: dcid.trim(), label: dcid.trim() });
+          }
+        });
+      } else if (typeof f === 'string' && f.trim()) {
+        const parts = f.split(',').map(s => s.trim()).filter(Boolean);
+        parts.forEach(dcid => newFeatures.push({ id: uid(), dcid, label: dcid }));
+      }
+
+      state.features = newFeatures;
+    } else {
+      // ✅ rebuild state from hash
+      state.features = hashFeatures.map(dcid => ({ id: uid(), dcid, label: dcid }));
+    }
+
+    // Target: prefer hashTarget if present, else YAML
+    const t = yamlObj.targets && yamlObj.targets.dcid;
+    const targetDcid = hashTarget || (typeof t === 'string' ? t.trim() : '');
+
+    state.target = targetDcid ? { id: uid(), dcid: targetDcid, label: targetDcid } : null;
+
+    render(false); // don't rewrite YAML while refreshing
+    syncYamlFromState();
+  } catch (e) {
+    // ignore invalid YAML while user types
+  }
+}
+
+
+// function applyIncomingFromHashOnce() {
+//   const h = (window.location.hash || '').replace(/^#/, '');
+//   const p = new URLSearchParams(h);
+
+//   // the Timeline usually sends features.dcid
+//   const dcid = p.get('features.dcid') || '';
+//   if (!dcid) return;
+
+//   // Append into the UI state (features)
+//   window.rsAddSelection('features', dcid, dcid);
+
+//   // IMPORTANT: remove it so refresh doesn’t add again
+//   p.delete('features.dcid');
+//   const next = p.toString();
+//   history.replaceState(null, '', window.location.pathname + (next ? '#' + next : ''));
+// }
+
+  document.addEventListener('DOMContentLoaded', () => {
+  setupDropZone('rsFeaturesDrop', 'features');
+  setupDropZone('rsTargetDrop', 'target');
+const p0 = getHashParams();
+const savedFeatures = readCsvParam(p0, 'rs_features'); // comma separated
+const savedTarget = (p0.get('rs_target') || '').trim();
+
+if (savedFeatures.length) {
+  state.features = savedFeatures.map(dcid => ({ id: uid(), dcid, label: dcid }));
+}
+if (savedTarget) {
+  state.target = { id: uid(), dcid: savedTarget, label: savedTarget };
+}
+
+  refreshFromYaml();  // initial read
+  render(false);           // initial render
+
+  setTimeout(() => {
+  const didConsume = consumeIncomingDcidFromHash();
+  if (didConsume) hasConsumedIncoming = true;
+}, 300);
+
+
+  // Watch YAML box for changes (param-input.js updates it after load)
+  const paramTextDiv = document.getElementById('paramText');
+  const preTag = paramTextDiv ? paramTextDiv.querySelector('pre') : null;
+// Snapshot the initial YAML that was in the HTML (before param-input.js rewrites it)
+const initialPreText = preTag ? preTag.textContent : '';
+
+  if (preTag) {
+  const observer = new MutationObserver(() => {
+    if (yamlRefreshTimer) clearTimeout(yamlRefreshTimer);
+
+    yamlRefreshTimer = setTimeout(() => {
+      // 1) Always rebuild UI from YAML
+      refreshFromYaml();
+
+      // 2) Try consuming incoming timeline selection once
+      if (!hasConsumedIncoming) {
+        const didConsume = consumeIncomingDcidFromHash();
+        if (didConsume) hasConsumedIncoming = true;
+      }
+    }, 100);
+  });
+
+  observer.observe(preTag, { childList: true, subtree: true, characterData: true });
+}
+
+
+  // Optional: if your app triggers this event, also refresh
+  document.addEventListener('hashChangeEvent', () => {
+    if (yamlRefreshTimer) clearTimeout(yamlRefreshTimer);
+    yamlRefreshTimer = setTimeout(() => {
+      refreshFromYaml();
+    }, 50);
+  });
+
+  window.rsAddSelection = function(role, dcid, label) {
+    const item = { id: uid(), dcid, label: label || dcid };
+    if (role === 'target') {
+      if (state.target) state.features.unshift(state.target);
+      state.target = item;
+   } else {
+  // prevent duplicates
+  const exists = state.features.some(x => x.dcid === dcid);
+  if (!exists) state.features.push(item);
+}
+render();
+
+  };
+function consumeIncomingDcidFromHash() {
+  const p = getHashParams();
+
+  const incomingRaw = (p.get('rs_dcid') || '').trim();
+  if (!incomingRaw) return false;
+
+  // ✅ support comma-separated incoming dcids
+  const incomingList = incomingRaw
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  if (!incomingList.length) return false;
+
+  let role = (p.get('rs_role') || 'features').trim();
+  if (role === 'targets') role = 'target';
+
+  if (role === 'target') {
+    // only 1 target (take first)
+    const dcid = incomingList[0];
+    p.set('rs_target', dcid);
+    window.rsAddSelection('target', dcid, dcid);
+  } else {
+    // ✅ append ALL incoming to rs_features
+    const current = readCsvParam(p, 'rs_features');
+    incomingList.forEach(dcid => {
+      if (!current.includes(dcid)) current.push(dcid);
+      window.rsAddSelection('features', dcid, dcid);
+    });
+    writeCsvParam(p, 'rs_features', current);
+  }
+
+  // remove single-use incoming param
+  p.delete('rs_dcid');
+  setHashParams(p);
+
+  return true;
+}
+
+
+
+
+
+
+
+
+});
+
+})();
+</script>
 
 </body>
 </html>
