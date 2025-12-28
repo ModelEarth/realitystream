@@ -58,7 +58,7 @@ loadScript(externalSite + '/cloud/run/js/param-input.js', function(results) {
   padding-bottom: 0px;
 }
 button {
-  background-color: #4CAF50;
+  background-color: #375a7f;
   border: none;
   color: white;
   padding: 10px 16px;
@@ -111,7 +111,7 @@ View <a href="../reports/">Report Output</a> (Under Development) - View <a href=
     <button id="rsAddClose" type="button" style="border:none; background:transparent; font-size:18px; cursor:pointer;">×</button>
   </div>
 
-  <div style="margin-top:10px; font-size:13px; color:#444;">I am adding:</div>
+  
   <div style="display:flex; gap:12px; margin-top:6px;">
     <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
       <input type="radio" name="rs_role" value="features" checked> Features
@@ -125,15 +125,15 @@ View <a href="../reports/">Report Output</a> (Under Development) - View <a href=
 
   <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px;">
     <button id="rsAddTimelines" type="button"
-      style="text-align:left; padding:10px; border-radius:8px; border:1px solid #ddd; background:#f8f8f8; cursor:pointer;">
+      style="text-align:left; padding:10px; border-radius:8px; border:1px solid #ddd; background:#375a7f; cursor:pointer;">
       Google Data Commons Timelines
-      <div style="font-size:12px; color:#666; margin-top:2px;">Go to timeline picker</div>
+      
     </button>
 
     <button id="rsAddNaics" type="button"
-      style="text-align:left; padding:10px; border-radius:8px; border:1px solid #ddd; background:#f8f8f8; cursor:pointer;">
+      style="text-align:left; padding:10px; border-radius:8px; border:1px solid #ddd; background: #375a7f; cursor:pointer;">
       US Industry NAICS Data
-      <div style="font-size:12px; color:#666; margin-top:2px;">Go to NAICS picker</div>
+      
     </button>
   </div>
 </div>
@@ -143,13 +143,13 @@ View <a href="../reports/">Report Output</a> (Under Development) - View <a href=
   <div style="flex:1; min-width:320px;">
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
       <div style="font-weight:600;">Features</div>
-      <span style="font-size:12px; color:#666;">Drag rows to Target</span>
+      <!-- <span style="font-size:12px; color:#666;">Drag rows to Target</span> -->
     </div>
 
     <div id="rsFeaturesDrop"
       style="border:1px solid #ddd; border-radius:10px; padding:10px; background:#fafafa; min-height:74px;">
       <div id="rsFeaturesList" style="display:flex; flex-direction:column; gap:8px;"></div>
-      <div id="rsFeaturesEmpty" style="font-size:12px; color:#777; margin-top:6px;">
+      <div id="rsFeaturesEmpty" style="font-size:10px; color:#777; margin-top:6px;">
         No features selected yet.
       </div>
     </div>
@@ -159,13 +159,13 @@ View <a href="../reports/">Report Output</a> (Under Development) - View <a href=
   <div style="flex:1; min-width:320px;">
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
       <div style="font-weight:600;">Target</div>
-      <span style="font-size:12px; color:#666;">Drop 1 row here</span>
+      <!-- <span style="font-size:12px; color:#666;">Drop 1 row here</span> -->
     </div>
 
     <div id="rsTargetDrop"
       style="border:1px solid #ddd; border-radius:10px; padding:10px; background:#fafafa; min-height:74px;">
       <div id="rsTargetList" style="display:flex; flex-direction:column; gap:8px;"></div>
-      <div id="rsTargetEmpty" style="font-size:12px; color:#777; margin-top:6px;">
+      <div id="rsTargetEmpty" style="font-size:10px; color:#777; margin-top:6px;">
         No target selected yet.
       </div>
     </div>
@@ -330,6 +330,18 @@ function writeCsvParam(p, key, list) {
 }
 
 
+function syncHashFromState() {
+  const p = getHashParams();
+  writeCsvParam(p, 'rs_features', state.features.map(x => x.dcid));
+
+  if (state.target?.dcid) p.set('rs_target', state.target.dcid);
+  else p.delete('rs_target');
+
+  const newHash = p.toString();
+  history.replaceState(null, '', window.location.pathname + (newHash ? '#' + newHash : ''));
+}
+
+
   function createRowCard(item, role) {
     const el = document.createElement('div');
     el.className = 'rsRowCard';
@@ -353,15 +365,13 @@ function writeCsvParam(p, key, list) {
 
     const title = document.createElement('div');
     title.style.fontWeight = '600';
+    title.style.fontSize = '13px';   
     title.textContent = item.label || item.dcid;
 
-    const sub = document.createElement('div');
-    sub.style.fontSize = '12px';
-    sub.style.color = '#666';
-    sub.textContent = item.dcid;
+   
 
     left.appendChild(title);
-    left.appendChild(sub);
+  
 
     const right = document.createElement('div');
     right.style.display = 'flex';
@@ -369,12 +379,12 @@ function writeCsvParam(p, key, list) {
 
     const removeBtn = document.createElement('button');
     removeBtn.type = 'button';
-    removeBtn.textContent = 'Remove';
+    removeBtn.textContent = 'X';
     removeBtn.style.padding = '6px 10px';
     removeBtn.style.fontSize = '12px';
     removeBtn.style.background = '#777';
 
-   // ✅ prevent the click from triggering drag behavior
+   // prevent the click from triggering drag behavior
 removeBtn.draggable = false;
 removeBtn.addEventListener('mousedown', (e) => {
   e.preventDefault();
@@ -395,7 +405,7 @@ removeBtn.addEventListener('click', (e) => {
         id: item.id,
         from: role
       }));
-      // optional visual hint
+    
       setTimeout(() => el.style.opacity = '0.6', 0);
     });
 
@@ -429,6 +439,7 @@ removeBtn.addEventListener('click', (e) => {
   function removeItem(id) {
     state.features = state.features.filter(x => x.id !== id);
     if (state.target && state.target.id === id) state.target = null;
+    syncHashFromState();
     render();
   }
 
@@ -487,7 +498,7 @@ removeBtn.addEventListener('click', (e) => {
     });
   }
 
-  // --- YAML sync (simple, safe approach) ---
+ 
   // This updates features.dcid / targets.dcid in YAML based on UI.
   function syncYamlFromState() {
     
@@ -509,15 +520,13 @@ removeBtn.addEventListener('click', (e) => {
     yamlObj.features = yamlObj.features || {};
     yamlObj.targets = yamlObj.targets || {};
 
-    // For now:
-    // - features.dcid supports either string (single) or array (multiple)
-    // - targets.dcid single string
+ 
  const featureDcids = state.features.map(x => x.dcid);
 
 if (featureDcids.length === 0) {
   delete yamlObj.features.dcid;
 } else {
-  // ✅ always store as comma-separated string
+  //always store as comma-separated string
   yamlObj.features.dcid = featureDcids.join(', ');
 }
 
@@ -542,7 +551,7 @@ if (featureDcids.length === 0) {
   return preText.includes('folder:') || preText.includes('features:') || preText.includes('targets:') || preText.includes('models:');
 }
 
-  // --- Initialize with something (optional) ---
+ 
   // This can read existing YAML and prefill cards later.
   function refreshFromYaml() {
     if (hasConsumedIncoming) return;
@@ -553,7 +562,7 @@ if (featureDcids.length === 0) {
 
   if (isSyncingYaml) return;
 
-  // ✅ If the hash already has rs_features, do NOT rebuild features from YAML.
+  // If the hash already has rs_features, do NOT rebuild features from YAML.
   const p = getHashParams();
   const hashFeatures = readCsvParam(p, 'rs_features');
   const hashTarget = (p.get('rs_target') || '').trim();
@@ -579,7 +588,7 @@ if (featureDcids.length === 0) {
 
       state.features = newFeatures;
     } else {
-      // ✅ rebuild state from hash
+      // rebuild state from hash
       state.features = hashFeatures.map(dcid => ({ id: uid(), dcid, label: dcid }));
     }
 
@@ -597,22 +606,6 @@ if (featureDcids.length === 0) {
 }
 
 
-// function applyIncomingFromHashOnce() {
-//   const h = (window.location.hash || '').replace(/^#/, '');
-//   const p = new URLSearchParams(h);
-
-//   // the Timeline usually sends features.dcid
-//   const dcid = p.get('features.dcid') || '';
-//   if (!dcid) return;
-
-//   // Append into the UI state (features)
-//   window.rsAddSelection('features', dcid, dcid);
-
-//   // IMPORTANT: remove it so refresh doesn’t add again
-//   p.delete('features.dcid');
-//   const next = p.toString();
-//   history.replaceState(null, '', window.location.pathname + (next ? '#' + next : ''));
-// }
 
   document.addEventListener('DOMContentLoaded', () => {
   // Features drop targets
@@ -689,6 +682,7 @@ const initialPreText = preTag ? preTag.textContent : '';
   const exists = state.features.some(x => x.dcid === dcid);
   if (!exists) state.features.push(item);
 }
+syncHashFromState();
 render();
 
   };
@@ -698,7 +692,7 @@ function consumeIncomingDcidFromHash() {
   const incomingRaw = (p.get('rs_dcid') || '').trim();
   if (!incomingRaw) return false;
 
-  // ✅ support comma-separated incoming dcids
+  // support comma-separated incoming dcids
   const incomingList = incomingRaw
     .split(',')
     .map(s => s.trim())
@@ -715,7 +709,7 @@ function consumeIncomingDcidFromHash() {
     p.set('rs_target', dcid);
     window.rsAddSelection('target', dcid, dcid);
   } else {
-    // ✅ append ALL incoming to rs_features
+    // append ALL incoming to rs_features
     const current = readCsvParam(p, 'rs_features');
     incomingList.forEach(dcid => {
       if (!current.includes(dcid)) current.push(dcid);
