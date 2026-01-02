@@ -38,11 +38,17 @@ You can add paths to external data by editing a copy of the [parameters.yaml](ht
 The term "features" is more prevalent in machine learning and data science.
 "factors" has a stronger association with statistics and social sciences. The term factors is used for impact attributes like emissions.
 
-TO DO: Add a python command that loads parameters.yaml to run [Run-Models-bkup.ipynb](https://github.com/ModelEarth/realitystream/tree/main/models) locally, so the user does not need to open a notebook. Pass a parameters.yaml path in. 
+The following python command loads parameters.yaml to run [Run-Models-bkup.ipynb](https://github.com/ModelEarth/realitystream/tree/main/models) locally without opening a notebook (since edits are saved in the Google colab rather than the local backup).
 
-Parameters are loaded from the parameters.yaml file:
+Parameters are loaded into Run-Models-bkup.ipynb from the parameters.yaml file.
+TO DO: Debug errors. Edit Google colab and save to bkup file.
 
-	python Run-Models-bkup.ipynb [raw path to parameters.yaml]
+	python run_models_cli.py parameters/parameters.yaml
+
+This one doesn't run the Run-Models-bkup.ipynb file yet:
+
+	python run_models.py parameters/parameters.yaml
+
 
 Example of parameters.yaml format:
 
