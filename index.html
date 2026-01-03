@@ -137,6 +137,9 @@ View <a href="../reports/">Report Output</a> (Under Development) - View <a href=
     </button>
   </div>
 </div>
+<div id="rsJoinStatus"
+  style="display:none; margin:10px 0 6px 0; padding:10px 12px; border:1px solid #e6e6e6; border-radius:10px; background:#fafafa; font-size:13px;">
+</div>
 
 <div id="rsPickers" style="margin: 10px 0 12px 0; display:flex; gap:14px; flex-wrap:wrap;">
   <!-- FEATURES -->
@@ -430,6 +433,62 @@ removeBtn.addEventListener('click', (e) => {
     return el;
   }
 
+function updateJoinStatus() {
+  const el = document.getElementById('rsJoinStatus');
+  if (!el) return;
+
+  // Only show when both features and target exist
+  const hasFeature = Array.isArray(state.features) && state.features.length > 0;
+  const hasTarget = !!(state.target && state.target.dcid);
+
+  if (!hasFeature || !hasTarget) {
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+
+  // scope comes from URL hash (Timeline already passes scope=country)
+  const p = getHashParams();
+  const scope = (p.get('scope') || 'country').trim() || 'country';
+
+  // common comes from YAML: features.common
+  let common = '';
+  try {
+    const paramTextDiv = document.getElementById('paramText');
+    const preTag = paramTextDiv ? paramTextDiv.querySelector('pre') : null;
+    if (preTag && window.jsyaml) {
+      const yamlObj = jsyaml.load(preTag.textContent) || {};
+      common = (yamlObj.features && yamlObj.features.common) ? String(yamlObj.features.common).trim() : '';
+    }
+  } catch (e) {
+    // ignore YAML parse errors while user is typing
+  }
+
+  if (!common) {
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+
+ 
+  const COMMON_LABELS = {
+    Fips: 'FIPS',
+    fips: 'FIPS',
+    Iso2: 'Country ID (ISO2)',
+    iso2: 'Country ID (ISO2)',
+    PostalCode: 'Postal Code',
+    postalcode: 'Postal Code',
+    Voxel: 'Voxel',
+    voxel: 'Voxel'
+  };
+  const commonLabel = COMMON_LABELS[common] || common;
+
+  el.textContent = `Joining on: ${scope} using common ${commonLabel}`;
+  el.style.display = 'block';
+}
+
+
+
  function render(shouldSyncYaml = true) {
   const fList = document.getElementById('rsFeaturesList');
   const tList = document.getElementById('rsTargetList');
@@ -444,6 +503,8 @@ removeBtn.addEventListener('click', (e) => {
 
   fEmpty.style.display = state.features.length ? 'none' : 'block';
   tEmpty.style.display = state.target ? 'none' : 'block';
+
+   updateJoinStatus(); 
 
   if (shouldSyncYaml) syncYamlFromState();
 }
