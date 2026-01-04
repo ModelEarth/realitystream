@@ -74,6 +74,157 @@ button {
   border-radius: 4px;
   white-space: nowrap;
 }
+
+
+
+  .rsRowCard{
+    position:relative; /* anchor popover to the card */
+  }
+
+  .rsActions{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    flex-shrink:0;
+  }
+
+  .rsInfoBtn{
+    width:26px;
+    height:26px;
+    padding:0;
+    border-radius:999px;
+    background:#eef3fb;
+    color:#203040;
+    border:1px solid #cfd8e3;
+    cursor:pointer;
+    font-size:12px;
+    font-weight:700;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    user-select:none;
+  }
+  .rsInfoBtn:hover{ background:#e3ecfb; }
+  .rsInfoBtn:active{ transform:scale(0.98); }
+
+  .rsRemoveBtn{
+    padding:6px 10px;
+    font-size:12px;
+    background:#6b7280;
+    border-radius:8px;
+  }
+
+ .rsPopover{
+  position:absolute;
+  right:44px;              /* sits left of the i + X buttons */
+  top:42px;
+  width:360px;
+  max-width:min(420px, calc(100vw - 60px));
+  background:#fff;
+  border:1px solid #e5e7eb;
+  border-radius:14px;
+  box-shadow:0 12px 28px rgba(0,0,0,0.12);
+  padding:14px 16px;
+  z-index:9999;
+}
+
+.rsPopover::before{
+  content:"";
+  position:absolute;
+  right:-8px;
+  top:18px;
+  width:14px;
+  height:14px;
+  background:#fff;
+  border-right:1px solid #e5e7eb;
+  border-top:1px solid #e5e7eb;
+  transform:rotate(45deg);
+}
+
+.rsPopover .k{
+  font-size:11px;
+  font-weight:700;
+  color:#6b7280;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  margin-top:10px;
+}
+
+.rsPopover .k:first-child{
+  margin-top:0;
+}
+
+.rsPopover .v{
+  font-size:13px;
+  color:#111827;
+  margin-top:6px;
+  line-height:1.35;
+  word-break:break-word;
+}
+
+.rsPopover a{
+  color:#2563eb;
+  text-decoration:none;
+  overflow-wrap:anywhere;
+}
+
+.rsPopover a:hover{
+  text-decoration:underline;
+}
+
+
+  .rsPopHeader{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    padding-bottom:8px;
+    margin-bottom:10px;
+    border-bottom:1px solid rgba(0,0,0,0.06);
+  }
+
+  .rsPopTitle{
+    font-size:12px;
+    font-weight:700;
+    color:#111827;
+    letter-spacing:.02em;
+    text-transform:uppercase;
+  }
+
+  .rsPopClose{
+    border:none;
+    background:transparent;
+    cursor:pointer;
+    font-size:18px;
+    line-height:18px;
+    padding:2px 6px;
+    border-radius:8px;
+    color:#6b7280;
+  }
+  .rsPopClose:hover{ background:#f3f4f6; color:#111827; }
+
+  .rsPopover .k{
+    font-size:11px;
+    color:#6b7280;
+    text-transform:uppercase;
+    letter-spacing:.03em;
+    margin-top:10px;
+  }
+  .rsPopover .v{
+    font-size:13px;
+    color:#111827;
+    word-break:break-word;
+    margin-top:3px;
+  }
+  .rsPopover a{
+    font-size:13px;
+    color:#1d4ed8;
+    text-decoration:none;
+    word-break:break-word;
+  }
+  .rsPopover a:hover{
+    text-decoration:underline;
+  }
 </style>
 
 
@@ -123,7 +274,7 @@ View <a href="../reports/">Report Output</a> (Under Development) - View <a href=
       <input type="radio" name="rs_role" value="features" checked> Features
     </label>
     <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
-      <input type="radio" name="rs_role" value="target"> Target
+      <input type="radio" name="rs_role" value="target"> Targets
     </label>
   </div>
 
@@ -364,6 +515,17 @@ function syncHashFromState() {
   history.replaceState(null, '', window.location.pathname + (newHash ? '#' + newHash : ''));
 }
 
+function closeAllPopovers() {
+  document.querySelectorAll('.rsPopover').forEach(p => p.remove());
+}
+
+document.addEventListener('click', (e) => {
+  // click outside closes
+  if (!e.target.closest('.rsPopover') && !e.target.closest('.rsInfoBtn')) {
+    closeAllPopovers();
+  }
+});
+
 
   function createRowCard(item, role) {
     const el = document.createElement('div');
@@ -390,24 +552,91 @@ function syncHashFromState() {
     title.style.fontWeight = '600';
     title.style.fontSize = '13px';   
     title.textContent = item.label || item.dcid;
+   const titleRow = document.createElement('div');
+titleRow.style.display = 'flex';
+titleRow.style.alignItems = 'center';
+titleRow.style.gap = '8px';
 
-   
+titleRow.appendChild(title);
+left.appendChild(titleRow);
 
-    left.appendChild(title);
+    
   
 
     const right = document.createElement('div');
+    right.className = 'rsActions';
     right.style.display = 'flex';
     right.style.gap = '8px';
 
-    const removeBtn = document.createElement('button');
-    removeBtn.type = 'button';
-    removeBtn.textContent = 'X';
-    removeBtn.style.padding = '6px 10px';
-    removeBtn.style.fontSize = '12px';
-    removeBtn.style.background = '#777';
 
-   // prevent the click from triggering drag behavior
+   // info icon (only if we have something useful to show)
+if (item.kind && (item.href || item.dcid || item.fullPath)) {
+  const infoBtn = document.createElement('button');
+  infoBtn.type = 'button';
+  infoBtn.textContent = 'i';
+  infoBtn.title = 'Info';
+  infoBtn.className = 'rsInfoBtn';
+  infoBtn.draggable = false;
+
+  // prevent drag on click
+  infoBtn.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  infoBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const existing = el.querySelector('.rsPopover');
+    if (existing) { existing.remove(); return; }
+
+    closeAllPopovers();
+
+    const pop = document.createElement('div');
+    pop.className = 'rsPopover';
+
+    const kindLabel = (item.kind || '').toUpperCase();
+    const value = item.dcid || '';
+    const link = item.href || '';
+    const fullPath = item.fullPath || '';
+
+  pop.innerHTML = `
+  <div class="k">${kindLabel || 'DCID'}</div>
+  <div class="v">${value || '-'}</div>
+
+  ${link ? `
+    <div class="k">LINK</div>
+    <div class="v">
+      <a href="${link}" target="_blank" rel="noopener noreferrer">${link}</a>
+    </div>
+  ` : ''}
+
+  ${fullPath ? `
+    <div class="k">PATH</div>
+    <div class="v">
+      <a href="${fullPath}" target="_blank" rel="noopener noreferrer">${fullPath}</a>
+    </div>
+  ` : ''}
+`;
+
+
+
+ 
+
+    el.appendChild(pop);
+  });
+
+  // ✅ THIS is the key change:
+  right.appendChild(infoBtn);
+}
+
+const removeBtn = document.createElement('button');
+removeBtn.type = 'button';
+removeBtn.textContent = 'X';
+removeBtn.className = 'rsRemoveBtn';
+
+// prevent drag on click
 removeBtn.draggable = false;
 removeBtn.addEventListener('mousedown', (e) => {
   e.preventDefault();
@@ -419,7 +648,7 @@ removeBtn.addEventListener('click', (e) => {
   removeItem(item.id);
 });
 
-    right.appendChild(removeBtn);
+right.appendChild(removeBtn);
     el.appendChild(left);
     el.appendChild(right);
 
@@ -663,51 +892,47 @@ function filenameFromPath(path) {
   return (parts[parts.length - 1] || '').trim();
 }
 
-/**
- * Returns { ids: string[], labelFromId: (id)=>string }
- * We keep "id" as the stored value (state.features[].dcid / state.target.dcid)
- * and "label" as what you show in the UI.
- */
+// For Features, the UI picks features.dcid if it exists otherwise features.data otherwise the filename from features.path
+// For Target, it picks targets.dcid if it exists otherwise targets.data otherwise the filename from targets.path
 function pickYamlIdsAndLabeler(sectionObj) {
   sectionObj = sectionObj || {};
 
-  // Priority 1: dcid
   const dcids = splitCsvOrArray(sectionObj.dcid);
   if (dcids.length) {
-    return {
-      ids: dcids,
-      labelFromId: (id) => id
-    };
+    return dcids.map(v => ({
+      value: v,
+      label: v,
+      kind: 'dcid',
+      href: `https://datacommons.org/browser/${encodeURIComponent(v)}`
+    }));
   }
 
-  // Priority 2: data
   const datas = splitCsvOrArray(sectionObj.data);
   if (datas.length) {
-    return {
-      ids: datas,
-      labelFromId: (id) => id
-    };
+    return datas.map(v => ({
+      value: v,
+      label: v,
+      kind: 'data',
+      href: '' // optional: if you later want a docs link per dataset
+    }));
   }
 
-  // Priority 3: path -> filename
-  // Priority 3: path -> filename (store filename as the value)
-const paths = splitCsvOrArray(sectionObj.path);
-if (paths.length) {
-  const filenames = paths
-    .map(p => filenameFromPath(p))
-    .filter(Boolean);
-
-  if (filenames.length) {
-    return {
-      ids: filenames,
-      labelFromId: (id) => id
-    };
+  const paths = splitCsvOrArray(sectionObj.path);
+  if (paths.length) {
+    return paths.map(p => {
+      const file = filenameFromPath(p) || p;
+      return {
+        value: file,     // keep card short
+        label: file,     // show filename
+        kind: 'path',
+        href: p          // full raw URL (clickable)
+      };
+    });
   }
+
+  return [];
 }
 
-
-  return { ids: [], labelFromId: (id) => id };
-}
 
 
 
@@ -735,27 +960,41 @@ if (paths.length) {
    // Only rebuild features from YAML when hash doesn't control them
 // Only rebuild from YAML when hash doesn't control them
 if (!hashFeatures.length) {
-  const { ids, labelFromId } = pickYamlIdsAndLabeler(yamlObj.features);
+  const picked = pickYamlIdsAndLabeler(yamlObj.features);
+  const featurePath = (yamlObj.features && yamlObj.features.path) ? yamlObj.features.path : '';
 
-  state.features = ids.map(v => ({
+  state.features = picked.map(x => ({
     id: uid(),
-    dcid: v,
-    label: labelFromId(v)
+    dcid: x.value,     // stored value (dcid/data/filename)
+    label: x.label,    // what you show
+    kind: x.kind,
+    href: x.href,
+    fullPath: featurePath
   }));
 } else {
-  // rebuild state from hash
-  state.features = hashFeatures.map(dcid => ({ id: uid(), dcid, label: dcid }));
+  state.features = hashFeatures.map(v => ({ id: uid(), dcid: v, label: v, kind: 'dcid', href: `https://datacommons.org/browser/${encodeURIComponent(v)}` }));
 }
+
 
 // Target: prefer hashTarget if present, else YAML
 if (hashTarget) {
-  state.target = { id: uid(), dcid: hashTarget, label: hashTarget };
+  state.target = { id: uid(), dcid: hashTarget, label: hashTarget, kind: 'dcid', href: `https://datacommons.org/browser/${encodeURIComponent(hashTarget)}` };
 } else {
-  const { ids, labelFromId } = pickYamlIdsAndLabeler(yamlObj.targets);
-  const v = (ids[0] || '').trim();
+  const pickedT = pickYamlIdsAndLabeler(yamlObj.targets);
+  const x = pickedT[0];
+  const targetPath = (yamlObj.targets && yamlObj.targets.path) ? yamlObj.targets.path : '';
 
-  state.target = v ? { id: uid(), dcid: v, label: labelFromId(v) } : null;
+
+  state.target = x ? {
+    id: uid(),
+    dcid: x.value,
+    label: x.label,
+    kind: x.kind,
+    href: x.href,
+    fullPath: targetPath
+  } : null;
 }
+
 
 
 
@@ -828,7 +1067,7 @@ const initialPreText = preTag ? preTag.textContent : '';
 }
 
 
-  // Optional: if your app triggers this event, also refresh
+   
   document.addEventListener('hashChangeEvent', () => {
     if (yamlRefreshTimer) clearTimeout(yamlRefreshTimer);
     yamlRefreshTimer = setTimeout(() => {
