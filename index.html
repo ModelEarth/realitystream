@@ -44,9 +44,15 @@ let externalSite = "https://model.earth"; // Since cloud repo is not always a su
 if (location.host.indexOf('localhost') >= 0) {
   externalSite = "..";
 }
-loadScript(externalSite + '/cloud/run/js/param-input.js', function(results) {
-  loadBaseParamsSelect(); // Resides in cloud/run/js/param-input.js
+loadScript(externalSite + '/cloud/run/js/param-input.js', function() {
+  loadBaseParamsSelect();
+
+  // refresh AFTER param-input has had time to write YAML into #paramText pre
+  setTimeout(() => {
+    if (window.rsRefreshFromYaml) window.rsRefreshFromYaml();
+  }, 300);
 });
+
 </script>
 
 
@@ -640,10 +646,76 @@ if (featureDcids.length === 0) {
   return preText.includes('folder:') || preText.includes('features:') || preText.includes('targets:') || preText.includes('models:');
 }
 
+
+function splitCsvOrArray(v) {
+  if (!v) return [];
+  if (Array.isArray(v)) return v.map(x => String(x).trim()).filter(Boolean);
+  if (typeof v === 'string') {
+    return v.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  return [String(v).trim()].filter(Boolean);
+}
+
+function filenameFromPath(path) {
+  if (!path || typeof path !== 'string') return '';
+  const clean = path.split('?')[0].split('#')[0];
+  const parts = clean.split('/');
+  return (parts[parts.length - 1] || '').trim();
+}
+
+/**
+ * Returns { ids: string[], labelFromId: (id)=>string }
+ * We keep "id" as the stored value (state.features[].dcid / state.target.dcid)
+ * and "label" as what you show in the UI.
+ */
+function pickYamlIdsAndLabeler(sectionObj) {
+  sectionObj = sectionObj || {};
+
+  // Priority 1: dcid
+  const dcids = splitCsvOrArray(sectionObj.dcid);
+  if (dcids.length) {
+    return {
+      ids: dcids,
+      labelFromId: (id) => id
+    };
+  }
+
+  // Priority 2: data
+  const datas = splitCsvOrArray(sectionObj.data);
+  if (datas.length) {
+    return {
+      ids: datas,
+      labelFromId: (id) => id
+    };
+  }
+
+  // Priority 3: path -> filename
+  // Priority 3: path -> filename (store filename as the value)
+const paths = splitCsvOrArray(sectionObj.path);
+if (paths.length) {
+  const filenames = paths
+    .map(p => filenameFromPath(p))
+    .filter(Boolean);
+
+  if (filenames.length) {
+    return {
+      ids: filenames,
+      labelFromId: (id) => id
+    };
+  }
+}
+
+
+  return { ids: [], labelFromId: (id) => id };
+}
+
+
+
+
  
   // This can read existing YAML and prefill cards later.
   function refreshFromYaml() {
-    if (hasConsumedIncoming) return;
+    // if (hasConsumedIncoming) return;
 
   const paramTextDiv = document.getElementById('paramText');
   const preTag = paramTextDiv ? paramTextDiv.querySelector('pre') : null;
@@ -660,40 +732,43 @@ if (featureDcids.length === 0) {
     const yamlObj = jsyaml.load(preTag.textContent) || {};
 
     // Only rebuild features from YAML when hash doesn't control them
-    if (!hashFeatures.length) {
-      const f = yamlObj.features && yamlObj.features.dcid;
-      const newFeatures = [];
+   // Only rebuild features from YAML when hash doesn't control them
+// Only rebuild from YAML when hash doesn't control them
+if (!hashFeatures.length) {
+  const { ids, labelFromId } = pickYamlIdsAndLabeler(yamlObj.features);
 
-      if (Array.isArray(f)) {
-        f.forEach(dcid => {
-          if (typeof dcid === 'string' && dcid.trim()) {
-            newFeatures.push({ id: uid(), dcid: dcid.trim(), label: dcid.trim() });
-          }
-        });
-      } else if (typeof f === 'string' && f.trim()) {
-        const parts = f.split(',').map(s => s.trim()).filter(Boolean);
-        parts.forEach(dcid => newFeatures.push({ id: uid(), dcid, label: dcid }));
-      }
+  state.features = ids.map(v => ({
+    id: uid(),
+    dcid: v,
+    label: labelFromId(v)
+  }));
+} else {
+  // rebuild state from hash
+  state.features = hashFeatures.map(dcid => ({ id: uid(), dcid, label: dcid }));
+}
 
-      state.features = newFeatures;
-    } else {
-      // rebuild state from hash
-      state.features = hashFeatures.map(dcid => ({ id: uid(), dcid, label: dcid }));
-    }
+// Target: prefer hashTarget if present, else YAML
+if (hashTarget) {
+  state.target = { id: uid(), dcid: hashTarget, label: hashTarget };
+} else {
+  const { ids, labelFromId } = pickYamlIdsAndLabeler(yamlObj.targets);
+  const v = (ids[0] || '').trim();
 
-    // Target: prefer hashTarget if present, else YAML
-    const t = yamlObj.targets && yamlObj.targets.dcid;
-    const targetDcid = hashTarget || (typeof t === 'string' ? t.trim() : '');
+  state.target = v ? { id: uid(), dcid: v, label: labelFromId(v) } : null;
+}
 
-    state.target = targetDcid ? { id: uid(), dcid: targetDcid, label: targetDcid } : null;
+
+
+
 
     render(false); // don't rewrite YAML while refreshing
-    syncYamlFromState();
+    // syncYamlFromState();
   } catch (e) {
     // ignore invalid YAML while user types
   }
 }
 
+window.rsRefreshFromYaml = refreshFromYaml;
 
 
   document.addEventListener('DOMContentLoaded', () => {
@@ -760,6 +835,24 @@ const initialPreText = preTag ? preTag.textContent : '';
       refreshFromYaml();
     }, 50);
   });
+
+
+  // When user changes Base parameters dropdown, param-input.js will update YAML + hash.
+// Force refresh after that happens.
+const parambaseEl = document.getElementById('parambase');
+if (parambaseEl) {
+  parambaseEl.addEventListener('change', () => {
+    if (yamlRefreshTimer) clearTimeout(yamlRefreshTimer);
+    yamlRefreshTimer = setTimeout(() => refreshFromYaml(), 150);
+  });
+}
+
+// Also react to real hash changes (fallback in case custom event isn't fired)
+window.addEventListener('hashchange', () => {
+  if (yamlRefreshTimer) clearTimeout(yamlRefreshTimer);
+  yamlRefreshTimer = setTimeout(() => refreshFromYaml(), 150);
+});
+
 
   window.rsAddSelection = function(role, dcid, label) {
   const item = { id: uid(), dcid, label: label || dcid };
