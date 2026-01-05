@@ -506,10 +506,18 @@ function writeCsvParam(p, key, list) {
 
 function syncHashFromState() {
   const p = getHashParams();
-  writeCsvParam(p, 'rs_features', state.features.map(x => x.dcid));
+  const dcidFeatures = state.features
+  .filter(x => x.kind === 'dcid')
+  .map(x => x.dcid);
 
-  if (state.target?.dcid) p.set('rs_target', state.target.dcid);
-  else p.delete('rs_target');
+writeCsvParam(p, 'rs_features', dcidFeatures);
+
+if (state.target?.kind === 'dcid' && state.target?.dcid) {
+  p.set('rs_target', state.target.dcid);
+} else {
+  p.delete('rs_target');
+}
+
 
   const newHash = p.toString();
   history.replaceState(null, '', window.location.pathname + (newHash ? '#' + newHash : ''));
@@ -525,6 +533,13 @@ document.addEventListener('click', (e) => {
     closeAllPopovers();
   }
 });
+
+function isProbablyDcid(v) {
+  if (!v) return false;
+  if (typeof v !== 'string') return false;
+  if (v.startsWith('http')) return false;
+  return v.includes('/');
+}
 
 
   function createRowCard(item, role) {
@@ -569,8 +584,8 @@ left.appendChild(titleRow);
     right.style.gap = '8px';
 
 
-   // info icon (only if we have something useful to show)
-if (item.kind && (item.href || item.dcid || item.fullPath)) {
+   // info icon 
+if (item.href || item.dcid || item.fullPath) {
   const infoBtn = document.createElement('button');
   infoBtn.type = 'button';
   infoBtn.textContent = 'i';
@@ -598,12 +613,27 @@ if (item.kind && (item.href || item.dcid || item.fullPath)) {
 
     const kindLabel = (item.kind || '').toUpperCase();
     const value = item.dcid || '';
-    const link = item.href || '';
-    const fullPath = item.fullPath || '';
+    
+const isDcid = (item.kind === 'dcid') || isProbablyDcid(value);
 
-  pop.innerHTML = `
-  <div class="k">${kindLabel || 'DCID'}</div>
-  <div class="v">${value || '-'}</div>
+ 
+let link = item.href || '';
+if (!isDcid && link && link.includes('datacommons.org/browser')) {
+  link = '';
+}
+
+   const fullPath = item.fullPath || '';
+const hasPH = !!item.hasPlaceholders;
+const placeholderPath = item.placeholderPath || '';
+const previewPath = item.previewPath || '';
+const pv = item.previewWith || null;
+
+
+const dcidBlock = (value || link) ? `
+  ${value ? `
+    <div class="k">${isProbablyDcid(value) ? 'DCID' : 'DATA'}</div>
+    <div class="v">${value}</div>
+  ` : ''}
 
   ${link ? `
     <div class="k">LINK</div>
@@ -611,13 +641,39 @@ if (item.kind && (item.href || item.dcid || item.fullPath)) {
       <a href="${link}" target="_blank" rel="noopener noreferrer">${link}</a>
     </div>
   ` : ''}
+` : '';
 
-  ${fullPath ? `
-    <div class="k">PATH</div>
-    <div class="v">
+const pathBlock = fullPath ? `
+  <div class="k">PATH</div>
+  <div class="v">
+    ${hasPH ? `
+      <div>${placeholderPath}</div>
+
+      ${pv ? `
+        <div style="margin-top:10px;">
+          <div class="k" style="margin-top:0;">Preview with:</div>
+          <div class="v">year: ${pv.year}</div>
+          <div class="v">state: ${(!item.previewWith?.state || String(item.previewWith.state).toLowerCase() === 'all') ? 'all (using NY)' : pv.state}</div>
+          <div class="v">naics: ${pv.naics}</div>
+        </div>
+      ` : ''}
+
+      ${previewPath ? `
+        <div class="k">Preview link</div>
+        <div class="v">
+          <a href="${previewPath}" target="_blank" rel="noopener noreferrer">${previewPath}</a>
+        </div>
+      ` : ''}
+    ` : `
       <a href="${fullPath}" target="_blank" rel="noopener noreferrer">${fullPath}</a>
-    </div>
-  ` : ''}
+    `}
+  </div>
+` : '';
+
+  pop.innerHTML = `
+   ${dcidBlock}
+  ${dcidBlock && pathBlock ? `<div style="margin-top:10px;"></div>` : ''}
+  ${pathBlock}
 `;
 
 
@@ -627,7 +683,7 @@ if (item.kind && (item.href || item.dcid || item.fullPath)) {
     el.appendChild(pop);
   });
 
-  // ✅ THIS is the key change:
+   
   right.appendChild(infoBtn);
 }
 
@@ -682,7 +738,7 @@ function updateJoinStatus() {
     return;
   }
 
-  // scope comes from URL hash (Timeline already passes scope=country)
+  // scope comes from URL hash  
   const p = getHashParams();
   const scope = (p.get('scope') || 'country').trim() || 'country';
 
@@ -786,7 +842,7 @@ function updateJoinStatus() {
 
       // keep hash consistent too
       syncHashFromState();
-      render(false); // don’t rewrite YAML here
+      render(false);  
       return;
     }
     state.target = item;
@@ -845,22 +901,34 @@ function updateJoinStatus() {
     yamlObj.targets = yamlObj.targets || {};
 
  
- const featureDcids = state.features.map(x => x.dcid);
+const featureDcids = state.features.filter(x => x.kind === 'dcid').map(x => x.dcid);
+const featureDatas = state.features.filter(x => x.kind === 'data').map(x => x.dcid);
 
-if (featureDcids.length === 0) {
+if (featureDcids.length) {
+  yamlObj.features.dcid = featureDcids.join(', ');
+  delete yamlObj.features.data;
+} else if (featureDatas.length) {
+  yamlObj.features.data = featureDatas.join(', ');
   delete yamlObj.features.dcid;
 } else {
-  //always store as comma-separated string
-  yamlObj.features.dcid = featureDcids.join(', ');
+  delete yamlObj.features.dcid;
+  delete yamlObj.features.data;
 }
 
 
 
-    if (!state.target) {
-      delete yamlObj.targets.dcid;
-    } else {
-      yamlObj.targets.dcid = state.target.dcid;
-    }
+
+  if (!state.target) {
+  delete yamlObj.targets.dcid;
+  delete yamlObj.targets.data;
+} else if (state.target.kind === 'dcid') {
+  yamlObj.targets.dcid = state.target.dcid;
+  delete yamlObj.targets.data;
+} else if (state.target.kind === 'data') {
+  yamlObj.targets.data = state.target.dcid;
+  delete yamlObj.targets.dcid;
+}
+
 
     const newYaml = jsyaml.dump(yamlObj, { lineWidth: -1, noCompatMode: true });
     preTag.textContent = newYaml;
@@ -891,6 +959,40 @@ function filenameFromPath(path) {
   const parts = clean.split('/');
   return (parts[parts.length - 1] || '').trim();
 }
+
+
+function pathHasPlaceholders(path) {
+  return typeof path === 'string' && /\{[a-zA-Z0-9_]+\}/.test(path);
+}
+
+function getPreviewValuesFromYaml(yamlObj) {
+  // Pick defaults  
+  const year = yamlObj?.endyear || yamlObj?.startyear || 2021;
+
+  // If YAML says state: all
+  let state = (yamlObj?.state || '').toString().trim();
+
+if (!state || state.toLowerCase() === 'all') {
+  state = 'NY';
+} else {
+  // If CSV list like "ME,VT,NH,MA" pick first for preview URL
+  const first = state.split(',').map(s => s.trim()).filter(Boolean)[0];
+  if (first) state = first;
+}
+
+  const naics = yamlObj?.naics || 2;
+
+  return { year, state, naics };
+}
+
+function applyPlaceholders(path, values) {
+  if (!path || typeof path !== 'string') return path;
+  return path
+    .replaceAll('{year}', String(values.year))
+    .replaceAll('{state}', String(values.state))
+    .replaceAll('{naics}', String(values.naics));
+}
+
 
 // For Features, the UI picks features.dcid if it exists otherwise features.data otherwise the filename from features.path
 // For Target, it picks targets.dcid if it exists otherwise targets.data otherwise the filename from targets.path
@@ -962,15 +1064,27 @@ function pickYamlIdsAndLabeler(sectionObj) {
 if (!hashFeatures.length) {
   const picked = pickYamlIdsAndLabeler(yamlObj.features);
   const featurePath = (yamlObj.features && yamlObj.features.path) ? yamlObj.features.path : '';
+const values = getPreviewValuesFromYaml(yamlObj.features || {});
+const valuesT = getPreviewValuesFromYaml(yamlObj.features || {});
 
-  state.features = picked.map(x => ({
-    id: uid(),
-    dcid: x.value,     // stored value (dcid/data/filename)
-    label: x.label,    // what you show
-    kind: x.kind,
-    href: x.href,
-    fullPath: featurePath
-  }));
+const hasPH = pathHasPlaceholders(featurePath);
+const previewPath = hasPH ? applyPlaceholders(featurePath, values) : featurePath;
+
+state.features = picked.map(x => ({
+  id: uid(),
+  dcid: x.value,
+  label: x.label,
+  kind: x.kind,
+  href: x.href,
+
+  // NEW:
+  fullPath: featurePath,                 // always keep original
+  hasPlaceholders: hasPH,
+  placeholderPath: hasPH ? featurePath : '',
+  previewPath: hasPH ? previewPath : '',
+  previewWith: hasPH ? values : null
+}));
+
 } else {
   state.features = hashFeatures.map(v => ({ id: uid(), dcid: v, label: v, kind: 'dcid', href: `https://datacommons.org/browser/${encodeURIComponent(v)}` }));
 }
@@ -983,16 +1097,25 @@ if (hashTarget) {
   const pickedT = pickYamlIdsAndLabeler(yamlObj.targets);
   const x = pickedT[0];
   const targetPath = (yamlObj.targets && yamlObj.targets.path) ? yamlObj.targets.path : '';
+const valuesT = getPreviewValuesFromYaml(yamlObj);
+const hasPHT = pathHasPlaceholders(targetPath);
+const previewPathT = hasPHT ? applyPlaceholders(targetPath, valuesT) : targetPath;
 
+state.target = x ? {
+  id: uid(),
+  dcid: x.value,
+  label: x.label,
+  kind: x.kind,
+  href: x.href,
 
-  state.target = x ? {
-    id: uid(),
-    dcid: x.value,
-    label: x.label,
-    kind: x.kind,
-    href: x.href,
-    fullPath: targetPath
-  } : null;
+  // NEW:
+  fullPath: targetPath,
+  hasPlaceholders: hasPHT,
+  placeholderPath: hasPHT ? targetPath : '',
+  previewPath: hasPHT ? previewPathT : '',
+  previewWith: hasPHT ? valuesT : null
+} : null;
+
 }
 
 
