@@ -475,9 +475,7 @@ function rsNavigateWithHash(destPath, source) {
     if (closeBtn) closeBtn.addEventListener('click', rsCloseAddPopup);
     if (backdrop) backdrop.addEventListener('click', rsCloseAddPopup);
 
-    // Destination pages:
-    // - Timelines picker: localsite timeline page
-    // - NAICS picker: localsite info page (your current “features” link)
+    
     if (btnTimelines) btnTimelines.addEventListener('click', function() {
       rsNavigateWithHash('/localsite/timeline/', 'timelines');
     });
@@ -498,8 +496,8 @@ function rsNavigateWithHash(destPath, source) {
 <script>
 (function() {
   const state = {
-    features: [], // array of { id, dcid, label }
-    target: null // { id, dcid, label } or null
+    features: [],  
+    target: null  
   };
 let isSyncingYaml = false;
 let yamlRefreshTimer = null;
@@ -569,10 +567,45 @@ document.addEventListener('click', (e) => {
 });
 
 function isProbablyDcid(v) {
-  if (!v) return false;
-  if (typeof v !== 'string') return false;
+  if (!v || typeof v !== 'string') return false;
   if (v.startsWith('http')) return false;
-  return v.includes('/');
+
+ 
+  if (v.includes('/')) return true;
+
+  return /^[A-Za-z][A-Za-z0-9_]+$/.test(v);
+}
+
+
+function rsGetYamlObjSafe() {
+  try {
+    const preTag = document.querySelector('#paramText pre');
+    if (!preTag || !window.jsyaml) return null;
+    return jsyaml.load(preTag.textContent) || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function rsGetPathInfoForRole(role) {
+  const y = rsGetYamlObjSafe();
+  if (!y) return { fullPath: '', hasPH: false, placeholderPath: '', previewPath: '', pv: null };
+
+  const section = (role === 'target') ? (y.targets || {}) : (y.features || {});
+  const fullPath = (section.path || '').toString().trim();
+  if (!fullPath) return { fullPath: '', hasPH: false, placeholderPath: '', previewPath: '', pv: null };
+
+  const hasPH = pathHasPlaceholders(fullPath);
+  const pv = hasPH ? getPreviewValuesFromYaml(y) : null;   // uses your existing function
+  const previewPath = hasPH ? applyPlaceholders(fullPath, pv) : '';
+
+  return {
+    fullPath,
+    hasPH,
+    placeholderPath: hasPH ? fullPath : '',
+    previewPath,
+    pv
+  };
 }
 
 
@@ -599,7 +632,7 @@ function isProbablyDcid(v) {
 
     const title = document.createElement('div');
     title.style.fontWeight = '600';
-    title.style.fontSize = '13px';   
+    title.style.fontSize = '12px';   
     title.textContent = item.label || item.dcid;
    const titleRow = document.createElement('div');
 titleRow.style.display = 'flex';
@@ -656,11 +689,14 @@ if (!isDcid && link && link.includes('datacommons.org/browser')) {
   link = '';
 }
 
-   const fullPath = item.fullPath || '';
-const hasPH = !!item.hasPlaceholders;
-const placeholderPath = item.placeholderPath || '';
-const previewPath = item.previewPath || '';
-const pv = item.previewWith || null;
+ const fromYaml = rsGetPathInfoForRole(role);
+
+const fullPath = item.fullPath || fromYaml.fullPath || '';
+const hasPH = !!item.hasPlaceholders || fromYaml.hasPH;
+const placeholderPath = item.placeholderPath || fromYaml.placeholderPath || '';
+const previewPath = item.previewPath || fromYaml.previewPath || '';
+const pv = item.previewWith || fromYaml.pv || null;
+
 
 
 const dcidBlock = (value || link) ? `
@@ -964,12 +1000,26 @@ function updateJoinStatus() {
 const featureDcids = state.features.filter(x => x.kind === 'dcid').map(x => x.dcid);
 const featureDatas = state.features.filter(x => x.kind === 'data').map(x => x.dcid);
 
+ 
+const parseCsv = (val) => {
+  if (!val) return [];
+  if (Array.isArray(val)) return val.map(x => String(x).trim()).filter(Boolean);
+  return String(val).split(',').map(s => s.trim()).filter(Boolean);
+};
+
 if (featureDcids.length) {
-  yamlObj.features.dcid = featureDcids.join(', ');
+
+  const existing = parseCsv(yamlObj.features.dcid);
+  const combined = [...new Set([...existing, ...featureDcids])];
+  yamlObj.features.dcid = combined.join(', ');
   delete yamlObj.features.data;
+
 } else if (featureDatas.length) {
-  yamlObj.features.data = featureDatas.join(', ');
+  const existing = parseCsv(yamlObj.features.data);
+  const combined = [...new Set([...existing, ...featureDatas])];
+  yamlObj.features.data = combined.join(', ');
   delete yamlObj.features.dcid;
+
 } else {
   delete yamlObj.features.dcid;
   delete yamlObj.features.data;
@@ -999,7 +1049,7 @@ if (featureDcids.length) {
 
   function looksLikeBaseYamlLoaded(preText) {
   if (!preText) return false;
-  // any one of these is enough to know param-input has written a real YAML
+  
   return preText.includes('folder:') || preText.includes('features:') || preText.includes('targets:') || preText.includes('models:');
 }
 
@@ -1075,7 +1125,7 @@ function pickYamlIdsAndLabeler(sectionObj) {
       value: v,
       label: v,
       kind: 'data',
-      href: '' // optional: if you later want a docs link per dataset
+      href: ''  
     }));
   }
 
@@ -1084,10 +1134,10 @@ function pickYamlIdsAndLabeler(sectionObj) {
     return paths.map(p => {
       const file = filenameFromPath(p) || p;
       return {
-        value: file,     // keep card short
-        label: file,     // show filename
+        value: file,      
+        label: file,     
         kind: 'path',
-        href: p          // full raw URL (clickable)
+        href: p           
       };
     });
   }
@@ -1100,9 +1150,9 @@ function pickYamlIdsAndLabeler(sectionObj) {
 
 
  
-  // This can read existing YAML and prefill cards later.
+  
   function refreshFromYaml() {
-    // if (hasConsumedIncoming) return;
+     
 
   const paramTextDiv = document.getElementById('paramText');
   const preTag = paramTextDiv ? paramTextDiv.querySelector('pre') : null;
@@ -1117,10 +1167,7 @@ function pickYamlIdsAndLabeler(sectionObj) {
 
   try {
     const yamlObj = jsyaml.load(preTag.textContent) || {};
-
-    // Only rebuild features from YAML when hash doesn't control them
-   // Only rebuild features from YAML when hash doesn't control them
-// Only rebuild from YAML when hash doesn't control them
+ 
 if (!hashFeatures.length) {
   const picked = pickYamlIdsAndLabeler(yamlObj.features);
   const featurePath = (yamlObj.features && yamlObj.features.path) ? yamlObj.features.path : '';
@@ -1138,7 +1185,7 @@ state.features = picked.map(x => ({
   href: x.href,
 
   // NEW:
-  fullPath: featurePath,                 // always keep original
+  fullPath: featurePath,                  
   hasPlaceholders: hasPH,
   placeholderPath: hasPH ? featurePath : '',
   previewPath: hasPH ? previewPath : '',
@@ -1146,7 +1193,28 @@ state.features = picked.map(x => ({
 }));
 
 } else {
-  state.features = hashFeatures.map(v => ({ id: uid(), dcid: v, label: v, kind: 'dcid', href: `https://datacommons.org/browser/${encodeURIComponent(v)}` }));
+  const featurePath = (yamlObj.features && yamlObj.features.path) ? yamlObj.features.path : '';
+const hasPH = pathHasPlaceholders(featurePath);
+const pv = hasPH ? getPreviewValuesFromYaml(yamlObj) : null;
+const previewPath = hasPH ? applyPlaceholders(featurePath, pv) : '';
+
+state.features = hashFeatures.map(v => {
+  const isDcid = isProbablyDcid(v);
+  return {
+    id: uid(),
+    dcid: v,
+    label: v,
+    kind: isDcid ? 'dcid' : 'data',
+    href: isDcid ? `https://datacommons.org/browser/${encodeURIComponent(v)}` : '',
+
+    fullPath: featurePath,
+    hasPlaceholders: hasPH,
+    placeholderPath: hasPH ? featurePath : '',
+    previewPath: hasPH ? previewPath : '',
+    previewWith: hasPH ? pv : null
+  };
+});
+
 }
 
 
@@ -1183,8 +1251,8 @@ state.target = x ? {
 
 
 
-    render(false); // don't rewrite YAML while refreshing
-    // syncYamlFromState();
+    render(false);  
+     
   } catch (e) {
     // ignore invalid YAML while user types
   }
@@ -1209,11 +1277,29 @@ const savedFeatures = readCsvParam(p0, 'rs_features'); // comma separated
 const savedTarget = (p0.get('rs_target') || '').trim();
 
 if (savedFeatures.length) {
-  state.features = savedFeatures.map(dcid => ({ id: uid(), dcid, label: dcid }));
+  state.features = savedFeatures.map(v => {
+    const isDcid = isProbablyDcid(v);
+    return {
+      id: uid(),
+      dcid: v,
+      label: v,
+      kind: isDcid ? 'dcid' : 'data',
+      href: isDcid ? `https://datacommons.org/browser/${encodeURIComponent(v)}` : ''
+    };
+  });
 }
+
 if (savedTarget) {
-  state.target = { id: uid(), dcid: savedTarget, label: savedTarget };
+  const isDcid = isProbablyDcid(savedTarget);
+  state.target = {
+    id: uid(),
+    dcid: savedTarget,
+    label: savedTarget,
+    kind: isDcid ? 'dcid' : 'data',
+    href: isDcid ? `https://datacommons.org/browser/${encodeURIComponent(savedTarget)}` : ''
+  };
 }
+
 
   refreshFromYaml();  // initial read
   render(false);           // initial render
@@ -1276,15 +1362,19 @@ window.addEventListener('hashchange', () => {
 });
 
 
-  window.rsAddSelection = function(role, dcid, label) {
-  const isDcid = isProbablyDcid(dcid);
+window.rsAddSelection = function(role, dcid, label, forcedKind) {
+  const kind = forcedKind || (isProbablyDcid(dcid) ? 'dcid' : 'data');
+
   const item = {
     id: uid(),
     dcid,
     label: label || dcid,
-    kind: isDcid ? 'dcid' : 'data',
-    href: isDcid ? `https://datacommons.org/browser/${encodeURIComponent(dcid)}` : ''
+    kind,
+    href: (kind === 'dcid')
+      ? `https://datacommons.org/browser/${encodeURIComponent(dcid)}`
+      : ''
   };
+
 
   if (role === 'target') {
    
@@ -1333,13 +1423,15 @@ function consumeIncomingDcidFromHash() {
 
   const dcid = incomingList[0];
   p.set('rs_target', dcid);
-  window.rsAddSelection('target', dcid, dcid);
+  window.rsAddSelection('target', dcid, dcid, 'dcid');
+
   } else {
     // append ALL incoming to rs_features
     const current = readCsvParam(p, 'rs_features');
     incomingList.forEach(dcid => {
       if (!current.includes(dcid)) current.push(dcid);
-      window.rsAddSelection('features', dcid, dcid);
+      window.rsAddSelection('features', dcid, dcid, 'dcid');
+
     });
     writeCsvParam(p, 'rs_features', current);
   }
