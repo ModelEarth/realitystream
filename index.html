@@ -10,8 +10,19 @@
 <link type="text/css" rel="stylesheet" href="/localsite/css/base.css" id="/localsite/css/base.css">
 <script type="text/javascript" src="/localsite/js/localsite.js?showheader=true"></script>
 
+
 <!-- Load required scripts before the loadMarkdown calls -->
 <script src="https://cdn.jsdelivr.net/npm/js-yaml@4/dist/js-yaml.min.js"></script>
+
+<script src="https://d3js.org/d3.v5.min.js"></script>
+
+<!-- Tabulator (grid) -->
+<link rel="stylesheet" href="https://unpkg.com/tabulator-tables@5.5.2/dist/css/tabulator.min.css">
+<script src="https://unpkg.com/tabulator-tables@5.5.2/dist/js/tabulator.min.js"></script>
+
+<!-- Earthscape helper (loads CSV and renders Tabulator) -->
+<script src="/localsite/js/earthscape.js"></script>
+
 <script>
 (function normalizeIncomingFromTimeline() {
   const h = (window.location.hash || '').replace(/^#/, '');
@@ -242,6 +253,27 @@ loadMarkdown("projects.md", "proj", "_parent");
 
 <div class="content contentpadding" style="position:relative;">
 
+  <!-- Preview Modal for Tabulator -->
+<div id="rsPreviewBackdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:10000;"></div>
+
+<div id="rsPreviewModal" style="display:none; position:fixed; top:70px; left:50%; transform:translateX(-50%);
+  width:min(1100px, calc(100vw - 40px)); max-height: calc(100vh - 120px);
+  background:#fff; border:1px solid #ddd; border-radius:12px; padding:12px; z-index:10001;
+  box-shadow:0 18px 40px rgba(0,0,0,0.25); overflow:auto;">
+
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px;">
+    <div style="font-weight:700;">Preview data</div>
+    <button id="rsPreviewClose" type="button"
+      style="border:none; background:#6b7280; border-radius:10px; padding:6px 10px; cursor:pointer;">✕</button>
+  </div>
+
+  <div id="rsPreviewMeta" style="font-size:12px; color:#555; margin-bottom:10px;"></div>
+
+  <!-- Tabulator renders inside this div -->
+  <div id="rsPreviewTable"></div>
+</div>
+
+
 <div style="float:right;margin-top:6px">
   <a href="https://github.com/modelearth/realitystream/"><img src="../localsite/img/icon/github/github.png" style="width:42px"></a>
 </div>
@@ -391,6 +423,8 @@ Edit your yaml above and paste into our <a href="input/industries/">Run Models C
 <div id="proj"></div>
 
 </div>
+
+
 <script>
   function rsOpenAddPopup() {
     document.getElementById('rsAddPopup').style.display = 'block';
@@ -441,9 +475,7 @@ function rsNavigateWithHash(destPath, source) {
     if (closeBtn) closeBtn.addEventListener('click', rsCloseAddPopup);
     if (backdrop) backdrop.addEventListener('click', rsCloseAddPopup);
 
-    // Destination pages:
-    // - Timelines picker: localsite timeline page
-    // - NAICS picker: localsite info page (your current “features” link)
+    
     if (btnTimelines) btnTimelines.addEventListener('click', function() {
       rsNavigateWithHash('/localsite/timeline/', 'timelines');
     });
@@ -464,8 +496,8 @@ function rsNavigateWithHash(destPath, source) {
 <script>
 (function() {
   const state = {
-    features: [], // array of { id, dcid, label }
-    target: null // { id, dcid, label } or null
+    features: [],  
+    target: null  
   };
 let isSyncingYaml = false;
 let yamlRefreshTimer = null;
@@ -535,10 +567,45 @@ document.addEventListener('click', (e) => {
 });
 
 function isProbablyDcid(v) {
-  if (!v) return false;
-  if (typeof v !== 'string') return false;
+  if (!v || typeof v !== 'string') return false;
   if (v.startsWith('http')) return false;
-  return v.includes('/');
+
+ 
+  if (v.includes('/')) return true;
+
+  return /^[A-Za-z][A-Za-z0-9_]+$/.test(v);
+}
+
+
+function rsGetYamlObjSafe() {
+  try {
+    const preTag = document.querySelector('#paramText pre');
+    if (!preTag || !window.jsyaml) return null;
+    return jsyaml.load(preTag.textContent) || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function rsGetPathInfoForRole(role) {
+  const y = rsGetYamlObjSafe();
+  if (!y) return { fullPath: '', hasPH: false, placeholderPath: '', previewPath: '', pv: null };
+
+  const section = (role === 'target') ? (y.targets || {}) : (y.features || {});
+  const fullPath = (section.path || '').toString().trim();
+  if (!fullPath) return { fullPath: '', hasPH: false, placeholderPath: '', previewPath: '', pv: null };
+
+  const hasPH = pathHasPlaceholders(fullPath);
+  const pv = hasPH ? getPreviewValuesFromYaml(y) : null;   // uses your existing function
+  const previewPath = hasPH ? applyPlaceholders(fullPath, pv) : '';
+
+  return {
+    fullPath,
+    hasPH,
+    placeholderPath: hasPH ? fullPath : '',
+    previewPath,
+    pv
+  };
 }
 
 
@@ -565,7 +632,7 @@ function isProbablyDcid(v) {
 
     const title = document.createElement('div');
     title.style.fontWeight = '600';
-    title.style.fontSize = '13px';   
+    title.style.fontSize = '12px';   
     title.textContent = item.label || item.dcid;
    const titleRow = document.createElement('div');
 titleRow.style.display = 'flex';
@@ -622,11 +689,14 @@ if (!isDcid && link && link.includes('datacommons.org/browser')) {
   link = '';
 }
 
-   const fullPath = item.fullPath || '';
-const hasPH = !!item.hasPlaceholders;
-const placeholderPath = item.placeholderPath || '';
-const previewPath = item.previewPath || '';
-const pv = item.previewWith || null;
+ const fromYaml = rsGetPathInfoForRole(role);
+
+const fullPath = item.fullPath || fromYaml.fullPath || '';
+const hasPH = !!item.hasPlaceholders || fromYaml.hasPH;
+const placeholderPath = item.placeholderPath || fromYaml.placeholderPath || '';
+const previewPath = item.previewPath || fromYaml.previewPath || '';
+const pv = item.previewWith || fromYaml.pv || null;
+
 
 
 const dcidBlock = (value || link) ? `
@@ -643,6 +713,9 @@ const dcidBlock = (value || link) ? `
   ` : ''}
 ` : '';
 
+const csvToPreview = previewPath || fullPath;
+const canPreview = !!csvToPreview && /\.csv(\?|#|$)/i.test(csvToPreview);
+
 const pathBlock = fullPath ? `
   <div class="k">PATH</div>
   <div class="v">
@@ -658,17 +731,29 @@ const pathBlock = fullPath ? `
         </div>
       ` : ''}
 
-      ${previewPath ? `
+      ${canPreview ? `
         <div class="k">Preview link</div>
         <div class="v">
-          <a href="${previewPath}" target="_blank" rel="noopener noreferrer">${previewPath}</a>
+          <a href="${csvToPreview}" class="rsPreviewLink" data-preview="${csvToPreview}">
+            Open preview table
+          </a>
         </div>
       ` : ''}
     ` : `
       <a href="${fullPath}" target="_blank" rel="noopener noreferrer">${fullPath}</a>
+
+      ${canPreview ? `
+        <div class="k" style="margin-top:10px;">Preview link</div>
+        <div class="v">
+          <a href="${csvToPreview}" class="rsPreviewLink" data-preview="${csvToPreview}">
+            Open preview table
+          </a>
+        </div>
+      ` : ''}
     `}
   </div>
 ` : '';
+
 
   pop.innerHTML = `
    ${dcidBlock}
@@ -681,6 +766,17 @@ const pathBlock = fullPath ? `
  
 
     el.appendChild(pop);
+
+    const previewA = pop.querySelector('.rsPreviewLink');
+if (previewA) {
+  previewA.addEventListener('click', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const url = previewA.getAttribute('data-preview');
+    rsOpenPreviewModal(url);
+  });
+}
+
   });
 
    
@@ -904,12 +1000,26 @@ function updateJoinStatus() {
 const featureDcids = state.features.filter(x => x.kind === 'dcid').map(x => x.dcid);
 const featureDatas = state.features.filter(x => x.kind === 'data').map(x => x.dcid);
 
+ 
+const parseCsv = (val) => {
+  if (!val) return [];
+  if (Array.isArray(val)) return val.map(x => String(x).trim()).filter(Boolean);
+  return String(val).split(',').map(s => s.trim()).filter(Boolean);
+};
+
 if (featureDcids.length) {
-  yamlObj.features.dcid = featureDcids.join(', ');
+
+  const existing = parseCsv(yamlObj.features.dcid);
+  const combined = [...new Set([...existing, ...featureDcids])];
+  yamlObj.features.dcid = combined.join(', ');
   delete yamlObj.features.data;
+
 } else if (featureDatas.length) {
-  yamlObj.features.data = featureDatas.join(', ');
+  const existing = parseCsv(yamlObj.features.data);
+  const combined = [...new Set([...existing, ...featureDatas])];
+  yamlObj.features.data = combined.join(', ');
   delete yamlObj.features.dcid;
+
 } else {
   delete yamlObj.features.dcid;
   delete yamlObj.features.data;
@@ -939,7 +1049,7 @@ if (featureDcids.length) {
 
   function looksLikeBaseYamlLoaded(preText) {
   if (!preText) return false;
-  // any one of these is enough to know param-input has written a real YAML
+  
   return preText.includes('folder:') || preText.includes('features:') || preText.includes('targets:') || preText.includes('models:');
 }
 
@@ -1015,7 +1125,7 @@ function pickYamlIdsAndLabeler(sectionObj) {
       value: v,
       label: v,
       kind: 'data',
-      href: '' // optional: if you later want a docs link per dataset
+      href: ''  
     }));
   }
 
@@ -1024,10 +1134,10 @@ function pickYamlIdsAndLabeler(sectionObj) {
     return paths.map(p => {
       const file = filenameFromPath(p) || p;
       return {
-        value: file,     // keep card short
-        label: file,     // show filename
+        value: file,      
+        label: file,     
         kind: 'path',
-        href: p          // full raw URL (clickable)
+        href: p           
       };
     });
   }
@@ -1040,9 +1150,9 @@ function pickYamlIdsAndLabeler(sectionObj) {
 
 
  
-  // This can read existing YAML and prefill cards later.
+  
   function refreshFromYaml() {
-    // if (hasConsumedIncoming) return;
+     
 
   const paramTextDiv = document.getElementById('paramText');
   const preTag = paramTextDiv ? paramTextDiv.querySelector('pre') : null;
@@ -1057,10 +1167,7 @@ function pickYamlIdsAndLabeler(sectionObj) {
 
   try {
     const yamlObj = jsyaml.load(preTag.textContent) || {};
-
-    // Only rebuild features from YAML when hash doesn't control them
-   // Only rebuild features from YAML when hash doesn't control them
-// Only rebuild from YAML when hash doesn't control them
+ 
 if (!hashFeatures.length) {
   const picked = pickYamlIdsAndLabeler(yamlObj.features);
   const featurePath = (yamlObj.features && yamlObj.features.path) ? yamlObj.features.path : '';
@@ -1078,7 +1185,7 @@ state.features = picked.map(x => ({
   href: x.href,
 
   // NEW:
-  fullPath: featurePath,                 // always keep original
+  fullPath: featurePath,                  
   hasPlaceholders: hasPH,
   placeholderPath: hasPH ? featurePath : '',
   previewPath: hasPH ? previewPath : '',
@@ -1086,7 +1193,28 @@ state.features = picked.map(x => ({
 }));
 
 } else {
-  state.features = hashFeatures.map(v => ({ id: uid(), dcid: v, label: v, kind: 'dcid', href: `https://datacommons.org/browser/${encodeURIComponent(v)}` }));
+  const featurePath = (yamlObj.features && yamlObj.features.path) ? yamlObj.features.path : '';
+const hasPH = pathHasPlaceholders(featurePath);
+const pv = hasPH ? getPreviewValuesFromYaml(yamlObj) : null;
+const previewPath = hasPH ? applyPlaceholders(featurePath, pv) : '';
+
+state.features = hashFeatures.map(v => {
+  const isDcid = isProbablyDcid(v);
+  return {
+    id: uid(),
+    dcid: v,
+    label: v,
+    kind: isDcid ? 'dcid' : 'data',
+    href: isDcid ? `https://datacommons.org/browser/${encodeURIComponent(v)}` : '',
+
+    fullPath: featurePath,
+    hasPlaceholders: hasPH,
+    placeholderPath: hasPH ? featurePath : '',
+    previewPath: hasPH ? previewPath : '',
+    previewWith: hasPH ? pv : null
+  };
+});
+
 }
 
 
@@ -1123,8 +1251,8 @@ state.target = x ? {
 
 
 
-    render(false); // don't rewrite YAML while refreshing
-    // syncYamlFromState();
+    render(false);  
+     
   } catch (e) {
     // ignore invalid YAML while user types
   }
@@ -1149,11 +1277,29 @@ const savedFeatures = readCsvParam(p0, 'rs_features'); // comma separated
 const savedTarget = (p0.get('rs_target') || '').trim();
 
 if (savedFeatures.length) {
-  state.features = savedFeatures.map(dcid => ({ id: uid(), dcid, label: dcid }));
+  state.features = savedFeatures.map(v => {
+    const isDcid = isProbablyDcid(v);
+    return {
+      id: uid(),
+      dcid: v,
+      label: v,
+      kind: isDcid ? 'dcid' : 'data',
+      href: isDcid ? `https://datacommons.org/browser/${encodeURIComponent(v)}` : ''
+    };
+  });
 }
+
 if (savedTarget) {
-  state.target = { id: uid(), dcid: savedTarget, label: savedTarget };
+  const isDcid = isProbablyDcid(savedTarget);
+  state.target = {
+    id: uid(),
+    dcid: savedTarget,
+    label: savedTarget,
+    kind: isDcid ? 'dcid' : 'data',
+    href: isDcid ? `https://datacommons.org/browser/${encodeURIComponent(savedTarget)}` : ''
+  };
 }
+
 
   refreshFromYaml();  // initial read
   render(false);           // initial render
@@ -1216,8 +1362,19 @@ window.addEventListener('hashchange', () => {
 });
 
 
-  window.rsAddSelection = function(role, dcid, label) {
-  const item = { id: uid(), dcid, label: label || dcid };
+window.rsAddSelection = function(role, dcid, label, forcedKind) {
+  const kind = forcedKind || (isProbablyDcid(dcid) ? 'dcid' : 'data');
+
+  const item = {
+    id: uid(),
+    dcid,
+    label: label || dcid,
+    kind,
+    href: (kind === 'dcid')
+      ? `https://datacommons.org/browser/${encodeURIComponent(dcid)}`
+      : ''
+  };
+
 
   if (role === 'target') {
    
@@ -1266,13 +1423,15 @@ function consumeIncomingDcidFromHash() {
 
   const dcid = incomingList[0];
   p.set('rs_target', dcid);
-  window.rsAddSelection('target', dcid, dcid);
+  window.rsAddSelection('target', dcid, dcid, 'dcid');
+
   } else {
     // append ALL incoming to rs_features
     const current = readCsvParam(p, 'rs_features');
     incomingList.forEach(dcid => {
       if (!current.includes(dcid)) current.push(dcid);
-      window.rsAddSelection('features', dcid, dcid);
+      window.rsAddSelection('features', dcid, dcid, 'dcid');
+
     });
     writeCsvParam(p, 'rs_features', current);
   }
@@ -1294,6 +1453,47 @@ function consumeIncomingDcidFromHash() {
 });
 
 })();
+
+
+  function rsOpenPreviewModal(csvUrl) {
+    // Show modal
+    document.getElementById('rsPreviewBackdrop').style.display = 'block';
+    document.getElementById('rsPreviewModal').style.display = 'block';
+
+    // Show the URL (optional)
+    document.getElementById('rsPreviewMeta').innerHTML =
+      `Source: <a href="${csvUrl}" target="_blank" rel="noopener noreferrer">${csvUrl}</a>`;
+
+    // Clear old table content so Tabulator can re-init cleanly
+    const tableEl = document.getElementById('rsPreviewTable');
+    tableEl.innerHTML = "";
+
+    // earthscape.js expects: my.dataset and my.elementID
+    const my = {
+      dataset: csvUrl,
+      elementID: "rsPreviewTable"
+    };
+
+    // This will d3.csv(...) then new Tabulator("#rsPreviewTable", ...)
+    loadEarthScape(my);
+  }
+
+  function rsClosePreviewModal() {
+    document.getElementById('rsPreviewBackdrop').style.display = 'none';
+    document.getElementById('rsPreviewModal').style.display = 'none';
+    document.getElementById('rsPreviewTable').innerHTML = "";
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    document.getElementById("rsPreviewClose")?.addEventListener("click", rsClosePreviewModal);
+    document.getElementById("rsPreviewBackdrop")?.addEventListener("click", rsClosePreviewModal);
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") rsClosePreviewModal();
+    });
+  });
+
+
 </script>
 
 </body>
