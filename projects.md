@@ -15,7 +15,8 @@ Update related .ipynb and app.py file to also add your name.
 
 1. DONE: Generate features-importance reports for available models - Melody and Yogesh.
 2. DONE: Add a comparison process for accuracy reports into one table for viewing. - Melody
-3. IN PROGRESS: Send files to Github - Yogesh
+3. IN PROGRESS: Frontend UX for selecting Features and Targets - Kashmira
+4. TO DO: Send files from local python backup to Github (See run_models_cli.py and run_models.py) <!-- Sampreethi -->
 
 Additional TO DO's reside at the top of the [Run Models colab](https://colab.research.google.com/drive/1zu0WcCiIJ5X3iN1Hd1KSW4dGn0JuodB8?usp=sharing).
 

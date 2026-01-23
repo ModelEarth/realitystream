@@ -4,7 +4,7 @@ features:
   common: Fips
   note: One state (or year?) breaks SMOTE which requires more than one class https://github.com/ModelEarth/realitystream/pull/26
   pathBreaks: https://raw.githubusercontent.com/ModelEarth/community-timelines/main/training/naics2/US/counties/2020/US-ME-training-naics2-counties-2020.csv
-  state: ME,NY
+  state: all
   startyear: 2021
   endyear: 2021
   naics: [2]
