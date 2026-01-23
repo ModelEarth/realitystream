@@ -1,1 +1,0 @@
-"""Utility scripts used by the ModelEarth webroot repository."""
