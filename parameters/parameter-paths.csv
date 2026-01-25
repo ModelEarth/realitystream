@@ -2,4 +2,6 @@
 parameters-simple.yaml,https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters-simple.yaml
 Parameters for years,https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters-years.yaml
 Industries by zip code,https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters-zip.yaml
+
 Eye Blinks,https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters-blinks.yaml
+Tree Canopy Neural Net (MLP vs RBF),https://raw.githubusercontent.com/Aditi030996/realitystream/main/parameters/parameters-neural-net.yaml
