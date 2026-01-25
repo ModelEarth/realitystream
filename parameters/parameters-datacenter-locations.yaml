@@ -1,0 +1,11 @@
+folder: datacenter-locations-mof
+features:
+  data: atmospheric_conditions
+  common: Fips
+  note: Atmospheric conditions and MOF performance by county
+  state: NV,CA,TX,AZ,UT
+  path: https://raw.githubusercontent.com/ModelEarth/grid/main/water/capture/mof/features/mof-features.csv
+targets:
+  data: optimal_location
+  path: https://raw.githubusercontent.com/ModelEarth/grid/main/water/capture/mof/targets/mof-targets-water-uptake.csv
+models: rbf,rfc,xgboost

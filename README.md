@@ -1,7 +1,12 @@
 Our [Run Models CoLab](input/industries) provides Logistic Regression, Support Vector Machines (SVM), MLP, XGBoost and two Random Forests.
 
-Our main input is currently industry features by county ID (FIPS) for exploring environmental impact targets (like [bee data](../bee-data)).  
-We are also creating [CoLabs for Exiobase International Trade Flow](https://model.earth/profile/trade).
+Paths for **features** and **targets** are joined based on location IDs (state or county FIPS, etc.) or brain regions for [eye blink predictions](models/random-bits-forest/).
+
+For Features, the UI picks `features.dcid` if it exists otherwise `features.data` otherwise the filename from `features.path`.  
+For Targets, it picks `targets.dcid` if it exists otherwise `targets.data` otherwise the filename from `targets.path`.
+
+Our main input is currently industry features by county ID (FIPS) for exploring environmental impact targets like [bee data](../bee-data) and [tree canopy](https://model.earth/tree-canopy/).  
+We are also preping data for [International Trade Flow](https://model.earth/profile/trade).
 
 
 [Run-Models-bkup.ipynb](https://github.com/ModelEarth/realitystream/tree/main/models) is a backup of the [Run Models CoLab](https://colab.research.google.com/drive/1zu0WcCiIJ5X3iN1Hd1KSW4dGn0JuodB8?usp=sharing) that we run locally. We append "-bkup" to indicate it is not the primary source.
@@ -19,19 +24,22 @@ Density file: bees-targets-top-20-percent.csv. Shashank worked from bees-populat
 -->
 
 In the CoLab, a select menu allows you to choose default parameter yaml paths set in [parameter-paths.csv](https://github.com/ModelEarth/realitystream/blob/main/parameters/parameter-paths.csv).
-[parameters-simple.yaml](https://raw.githubusercontent.com/ModelEarth/realitystream/main/parameters/parameters-simple.yaml) - 2020, just Maine
-[parameters.yaml](https://raw.githubusercontent.com/ModelEarth/realitystream/main/parameters/parameters.yaml) - Predicts bee density by industry  
-[parameters-years.yaml](https://raw.githubusercontent.com/ModelEarth/realitystream/main/parameters/parameters-years.yaml) - For testing with multiple years and states (currently same as parameters.yaml).  Uses bee populatin growth.
-[parameters-zip.yaml](https://raw.githubusercontent.com/ModelEarth/realitystream/main/parameters/parameters-zip.yaml) - Needs zip code target. Uses bee populatin growth.  
+[parameters-simple.yaml](https://raw.githubusercontent.com/ModelEarth/realitystream/main/parameters/parameters-simple.yaml) - Bee density for 2020 for Maine and New York by top industries (2-digits)
+[parameters.yaml](https://raw.githubusercontent.com/ModelEarth/realitystream/main/parameters/parameters.yaml) - Predicts bee density by industry (6-digit NAICS) for New England states 2017 to 2021
+[parameters-gdc.yaml](https://raw.githubusercontent.com/ModelEarth/realitystream/main/parameters/parameters-gdc.yaml) - Google Data Commons - Predicting states using demographics
+[parameters-zip.yaml](https://raw.githubusercontent.com/ModelEarth/realitystream/main/parameters/parameters-zip.yaml) - Needs zip code target. Uses bee population density.  
 [parameters-blinks.yaml](https://raw.githubusercontent.com/ModelEarth/realitystream/main/parameters/parameters-blinks.yaml) - Uses only features dataset (which contains the target column).
 
 <!--
+
+[parameters-years.yaml](https://raw.githubusercontent.com/ModelEarth/realitystream/main/parameters/parameters-years.yaml) - For testing with multiple years and states (currently same as parameters.yaml).
+
 TO DO: Web page displaying US counties at risk of increased poverty - Use Google Data Commons API for FIPS county poverty target data and international target data. Pull with an [Observable Data Loader](../../../timelines/observable/)
 -->
 
 TO DO: Top ten counties in each state likely to have [declining tree canopy](/data-pipeline/research/canopy/)
 
-TO DO: Within Run Models, add python pull from Google Data Commons API for population, education levels, income/poverty levels to use as both features and targets.
+TO DO: Within Run Models, add python pull from Google Data Commons API for population, education levels, income/poverty levels to use as both features and targets. - IN PROGRESS
 
 TO DO: Use [Tensorflow.org](https://www.tensorflow.org/js/demos) for [Neural Network predictions](https://www.tensorflow.org/s/results/?q=neural%20networks) with our training data.
 

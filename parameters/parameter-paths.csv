@@ -1,7 +1,15 @@
-﻿parameters.yaml,https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters.yaml
-parameters-simple.yaml,https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters-simple.yaml
+Parameters (default),https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters.yaml
+Parameters simple,https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters-simple.yaml
 Parameters for years,https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters-years.yaml
 Industries by zip code,https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters-zip.yaml
-
 Eye Blinks,https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters-blinks.yaml
+Bee Density (ME & NY 2021 NAICS-2),https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters-simple.yaml
+Bee Density (ME & NY 2017-2021 NAICS-6),https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters.yaml
+Forest Canopy (All States),https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters-canopy-all-states.yaml
+Google Data Commons (GDC),https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters-gdc.yaml
+Bee All-Years (MN),https://raw.githubusercontent.com/ThousiMd/realitystream/main/parameters/parameters-all-years-bees-MN.yaml
+MOF Water Capture (All Counties),https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters-mof.yaml
+MOF Datacenter Locations (5 States),https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters-datacenter-locations.yaml
+MOF Optimization (Integrated Dataset),https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameters-mof-optimization.yaml
+Data Pull GDC UN,https://github.com/ModelEarth/realitystream/blob/main/parameters/parameters_un_gcd.yaml
 Tree Canopy Neural Net (MLP vs RBF),https://raw.githubusercontent.com/Aditi030996/realitystream/main/parameters/parameters-neural-net.yaml

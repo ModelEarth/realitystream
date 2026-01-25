@@ -5,7 +5,7 @@ Our Machine Learning (ML) models join feature and target (Y=1) data based on loc
 Scope includes: Countries, States, County FIPS, Zip Codes, and Brain Voxels (for eye blinks).
 
 - [Run Models CoLab](../input/industries)
-- [Random Forests for Healthy Bees](location-forest)
+- [Random Forests for Healthy Bees](../../bee-data/)
 - [Random Bits Forest for Eye Blinks](random-bits-forest)
 
 The Run Modles colab merges feature and target datasets in Pandas.  
@@ -33,7 +33,7 @@ Select one or more models, then paste the resulting yaml in the Run Models CoLab
 - **Best for**: Cybersecurity, large-scale categorical or binary feature data.
 - **Common Use**: High-dimensional binary datasets, one-hot encoded data.
 - **Limitations**: May not perform as well on general-purpose or continuous feature datasets.
-[Eye Blink Data](random-bits-forest/) - Sample to add to colab
+Overview: [Eye Blink Data](random-bits-forest/) - Load [parameters-blink.yaml](../#parambase=Eye+Blinks)
 
 ## <input type="checkbox" id="model-svm" name="model" value="svm"> Support Vector Machines (svm) - Runs Slow
 

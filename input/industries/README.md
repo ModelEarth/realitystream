@@ -8,10 +8,7 @@ Backup resides at realitystream/models/Run-Models-bkup.ipynb
 
 **GPU SUPPORT using cuML** In your browser, when using the Run Models notebook, change the runtime type to get the latest speedups from cuML.
 
-Data prep for [Industry Features and Targets](../../../data-pipeline/timelines)
-
-- Send report files to Github as last step in Run Models colab - DONE
-- Fetch an index.html file from a Github link and send it to the report folder. - DONE
+Data prep for [Industry Features and Targets](https://model.earth/data-pipeline/) - [Bee Density](https://model.earth/bee-data/) - [Tree Canopy](https://model.earth/tree-canopy/)
 
 ## Features Data
 
@@ -44,6 +41,6 @@ Features: types of industries, education levels, employment levels, population d
 **Wage Growth** - Increases in local pay levels
 Features: types of industries, education levels, employment levels, population density, environmental indicators
 
-Notes on how [we push files to GitHub](/localsite/start/steps/github-token/)
+Notes on how [we push files to GitHub](../../../localsite/start/steps/github-token/)
 
 

@@ -1,0 +1,14 @@
+folder: naics2-forestcanopy-counties-simple
+features:
+  data: industries
+  common: Fips
+  path: https://raw.githubusercontent.com/ModelEarth/tree-canopy/refs/heads/main/inputs/features/combined_naics_data.csv
+  naics: naics2
+  state: all
+targets:
+  data: forest_canopy
+  path: https://raw.githubusercontent.com/ModelEarth/tree-canopy/refs/heads/main/input/targets/forest_canopy_data_target.csv
+timeseries:
+  data: forest_canopy_timeseries
+  path: https://raw.githubusercontent.com/ModelEarth/tree-canopy/refs/heads/main/input/targets/forest_canopy_timeseries_2015_2019.csv
+models: rbf

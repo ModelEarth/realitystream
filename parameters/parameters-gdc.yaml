@@ -1,0 +1,28 @@
+folder: gdc-states-test
+features:
+  dcid:
+    - geoId/13  # Georgia
+    - geoId/06  # California  
+    - geoId/36  # New York
+    - geoId/48  # Texas
+    - geoId/12  # Florida
+  variables:
+    - Count_Person
+    - Median_Income_Person
+    - UnemploymentRate_Person
+  common: Fips
+  year: 2020
+targets:
+  dcid:
+    - geoId/13
+    - geoId/06
+    - geoId/36
+    - geoId/48
+    - geoId/12
+  variables:
+    - Count_Person
+  common: Fips
+  year: 2020
+models:
+  - RFC
+  - XGBoost

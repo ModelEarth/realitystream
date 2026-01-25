@@ -34,7 +34,16 @@ function redirectToMainPage() {
 
   // Redirect if there are selected models, otherwise show an alert
   if (selectedModel) {
-    window.location.href = `../#models=${selectedModel}`;
+    // Get current hash parameters and preserve them
+    const currentHash = getHash();
+    // Update the models parameter
+    currentHash.models = selectedModel;
+    
+    // Use updateHash to properly handle nested objects without redirecting
+    updateHash(currentHash);
+    
+    // Navigate to parent directory with hash preserved
+    window.location.href = '../' + window.location.hash;
   } else {
     alert("Please select a model first.");
   }

@@ -13,7 +13,7 @@ def check_directory(directory_path):
         print(f"Directory '{directory_path}' already exists.")
     return directory_path
 
-dataset_name = "blinks"
+dataset_name = "bees"
 df = pd.read_csv(f'../../input/{dataset_name}/targets/{dataset_name}-targets.csv')
 
 df = df.dropna()

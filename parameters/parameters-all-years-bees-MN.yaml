@@ -1,0 +1,19 @@
+# Parameters for All-Years Bee Data (Minnesota)
+# Extends the existing RealityStream parameter structure for NAICS6 features
+
+features:
+  path: "https://raw.githubusercontent.com/ModelEarth/community-timelines/main/training/all-years/naics6/MN-all-years.csv"
+  id: "Fips"
+
+targets:
+  path: "https://raw.githubusercontent.com/ModelEarth/bee-data/main/targets/bees-targets-top-20-percent.csv"
+  id: "Fips"
+  column: "colony_density_top_20"
+
+join:
+  key: "Fips"
+  how: "inner"
+
+models:
+  - RFC
+  - XGBoost
