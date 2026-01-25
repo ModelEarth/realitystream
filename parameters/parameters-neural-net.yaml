@@ -1,1 +1,19 @@
+folder: naics2-forestcanopy-neuralnet
+
+features:
+  data: industries
+  common: Fips
+  state: all
+  startyear: 2021
+  endyear: 2021
+  naics: [2]
+  path: https://raw.githubusercontent.com/ModelEarth/community-timelines/main/training/naics{naics}/US/counties/{year}/US-{state}-training-naics{naics}-counties-{year}.csv
+
+targets:
+  data: forest_canopy
+  path: https://raw.githubusercontent.com/ModelEarth/tree-canopy/main/input/targets/forest_canopy_data_target.csv
+
+models:
+  - rbf
+  - mlp
 
