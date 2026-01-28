@@ -327,7 +327,7 @@ View <a href="../reports/">Report Output</a> (Under Development) - View <a href=
   </div>
 </div>
 <div id="rsJoinStatus"
-  style="display:none; margin:10px 0 6px 0; padding:10px 12px; border:1px solid #e6e6e6; border-radius:10px; background:#fafafa; font-size:13px;">
+  style="display:none; margin:10px 0 6px 0; padding:10px 12px; border:1px solid #e6e6e6; border-radius:10px; font-size:13px;">
 </div>
 
 <div id="rsPickers" style="margin: 10px 0 12px 0; display:flex; gap:14px; flex-wrap:wrap;">
@@ -339,7 +339,7 @@ View <a href="../reports/">Report Output</a> (Under Development) - View <a href=
     </div>
 
     <div id="rsFeaturesDrop"
-      style="border:1px solid #ddd; border-radius:10px; padding:10px; background:#fafafa; min-height:74px;">
+      style="border:1px solid #ddd; border-radius:10px; padding:10px; min-height:74px;">
       <div id="rsFeaturesList" style="display:flex; flex-direction:column; gap:8px;"></div>
       <div id="rsFeaturesEmpty" style="font-size:10px; color:#777; margin-top:6px;">
         No features selected yet.
@@ -355,7 +355,7 @@ View <a href="../reports/">Report Output</a> (Under Development) - View <a href=
     </div>
 
     <div id="rsTargetDrop"
-      style="border:1px solid #ddd; border-radius:10px; padding:10px; background:#fafafa; min-height:74px;">
+      style="border:1px solid #ddd; border-radius:10px; padding:10px; min-height:74px;">
       <div id="rsTargetList" style="display:flex; flex-direction:column; gap:8px;"></div>
       <div id="rsTargetEmpty" style="font-size:10px; color:#777; margin-top:6px;">
         No target selected yet.
@@ -623,7 +623,6 @@ function rsGetPathInfoForRole(role) {
     el.style.padding = '10px';
     el.style.border = '1px solid #ddd';
     el.style.borderRadius = '10px';
-    el.style.background = '#fff';
     el.style.cursor = 'grab';
 
     const left = document.createElement('div');
