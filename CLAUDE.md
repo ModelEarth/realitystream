@@ -10,7 +10,6 @@ This document captures technical implementation notes, common issues, and UI/UX 
 ## Recent UI Enhancements
 
 ### Parambase Dropdown
-- **Base parameters label**: Added `Base parameters:` label to the left of the dropdown for clarity.
 - **Copy shareable link button**:  
   - Copies the current `location.href` (including the hash state) to the clipboard.  
   - Shows a **temporary “Copied!” status flash** next to the button for feedback.  

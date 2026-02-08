@@ -8,6 +8,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <link type="text/css" rel="stylesheet" href="/localsite/css/base.css" id="/localsite/css/base.css">
+<link type="text/css" rel="stylesheet" href="/cloud/run/css/param.css">
 <script type="text/javascript" src="/localsite/js/localsite.js?showheader=true"></script>
 
 
@@ -86,156 +87,6 @@ button {
   white-space: nowrap;
 }
 
-
-
-  .rsRowCard{
-    position:relative; /* anchor popover to the card */
-  }
-
-  .rsActions{
-    display:flex;
-    align-items:center;
-    gap:8px;
-    flex-shrink:0;
-  }
-
-  .rsInfoBtn{
-    width:26px;
-    height:26px;
-    padding:0;
-    border-radius:999px;
-    background:#eef3fb;
-    color:#203040;
-    border:1px solid #cfd8e3;
-    cursor:pointer;
-    font-size:12px;
-    font-weight:700;
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    user-select:none;
-  }
-  .rsInfoBtn:hover{ background:#e3ecfb; }
-  .rsInfoBtn:active{ transform:scale(0.98); }
-
-  .rsRemoveBtn{
-    padding:6px 10px;
-    font-size:12px;
-    background:#6b7280;
-    border-radius:8px;
-  }
-
- .rsPopover{
-  position:absolute;
-  right:44px;              /* sits left of the i + X buttons */
-  top:42px;
-  width:360px;
-  max-width:min(420px, calc(100vw - 60px));
-  background:#fff;
-  border:1px solid #e5e7eb;
-  border-radius:14px;
-  box-shadow:0 12px 28px rgba(0,0,0,0.12);
-  padding:14px 16px;
-  z-index:9999;
-}
-
-.rsPopover::before{
-  content:"";
-  position:absolute;
-  right:-8px;
-  top:18px;
-  width:14px;
-  height:14px;
-  background:#fff;
-  border-right:1px solid #e5e7eb;
-  border-top:1px solid #e5e7eb;
-  transform:rotate(45deg);
-}
-
-.rsPopover .k{
-  font-size:11px;
-  font-weight:700;
-  color:#6b7280;
-  letter-spacing:.06em;
-  text-transform:uppercase;
-  margin-top:10px;
-}
-
-.rsPopover .k:first-child{
-  margin-top:0;
-}
-
-.rsPopover .v{
-  font-size:13px;
-  color:#111827;
-  margin-top:6px;
-  line-height:1.35;
-  word-break:break-word;
-}
-
-.rsPopover a{
-  color:#2563eb;
-  text-decoration:none;
-  overflow-wrap:anywhere;
-}
-
-.rsPopover a:hover{
-  text-decoration:underline;
-}
-
-
-  .rsPopHeader{
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    gap:10px;
-    padding-bottom:8px;
-    margin-bottom:10px;
-    border-bottom:1px solid rgba(0,0,0,0.06);
-  }
-
-  .rsPopTitle{
-    font-size:12px;
-    font-weight:700;
-    color:#111827;
-    letter-spacing:.02em;
-    text-transform:uppercase;
-  }
-
-  .rsPopClose{
-    border:none;
-    background:transparent;
-    cursor:pointer;
-    font-size:18px;
-    line-height:18px;
-    padding:2px 6px;
-    border-radius:8px;
-    color:#6b7280;
-  }
-  .rsPopClose:hover{ background:#f3f4f6; color:#111827; }
-
-  .rsPopover .k{
-    font-size:11px;
-    color:#6b7280;
-    text-transform:uppercase;
-    letter-spacing:.03em;
-    margin-top:10px;
-  }
-  .rsPopover .v{
-    font-size:13px;
-    color:#111827;
-    word-break:break-word;
-    margin-top:3px;
-  }
-  .rsPopover a{
-    font-size:13px;
-    color:#1d4ed8;
-    text-decoration:none;
-    word-break:break-word;
-  }
-  .rsPopover a:hover{
-    text-decoration:underline;
-  }
 </style>
 
 
@@ -249,7 +100,7 @@ loadMarkdown("projects.md", "proj", "_parent");
 </script>
 </head>
 
-<body>
+<body data-param-input="realitystream">
 
 <div class="content contentpadding" style="position:relative;">
 
@@ -286,85 +137,7 @@ View <a href="../reports/">Report Output</a> (Under Development) - View <a href=
 
 <select id="parambase"></select><br>
 
-<div id="pathControls">
-  <div id="addControls" style="margin-top:10px; display:flex; gap:10px; align-items:center;">
-    <button id="addBtn" type="button">+ Add</button>
-  </div>
-
-  <!-- Popup -->
-  <div id="rsAddBackdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.15); z-index:9998;"></div>
-
-  <div id="rsAddPopup" style="display:none; position:fixed; top:120px; left:50%; transform:translateX(-50%);
-    width:360px; background:#fff; border:1px solid #ddd; border-radius:10px; padding:12px; z-index:9999; box-shadow:0 10px 25px rgba(0,0,0,0.15);">
-    <div style="display:flex; justify-content:space-between; align-items:center;">
-      <div style="font-weight:600;">Add dataset</div>
-      <button id="rsAddClose" type="button" style="border:none; background:transparent; font-size:18px; cursor:pointer;">×</button>
-    </div>
-
-    
-    <div style="display:flex; gap:12px; margin-top:6px;">
-      <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
-        <input type="radio" name="rs_role" value="features" checked> Features
-      </label>
-      <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
-        <input type="radio" name="rs_role" value="target"> Targets
-      </label>
-    </div>
-
-    <div style="margin-top:12px; font-size:13px; color:#444;">Select from:</div>
-
-    <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px;">
-      <button id="rsAddTimelines" type="button"
-        style="text-align:left; padding:10px; border-radius:8px; border:1px solid #ddd; background:#375a7f; cursor:pointer;">
-        Google Data Commons Timelines
-        
-      </button>
-
-      <button id="rsAddNaics" type="button"
-        style="text-align:left; padding:10px; border-radius:8px; border:1px solid #ddd; background: #375a7f; cursor:pointer;">
-        US Industry NAICS Data
-        
-      </button>
-    </div>
-  </div>
-  <div id="rsJoinStatus"
-    style="display:none; margin:10px 0 6px 0; padding:10px 12px; border:1px solid #e6e6e6; border-radius:10px; font-size:13px;">
-  </div>
-
-  <div id="rsPickers" style="margin: 10px 0 12px 0; display:flex; gap:14px; flex-wrap:wrap;">
-    <!-- FEATURES -->
-    <div style="flex:1; min-width:320px;">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
-        <div style="font-weight:600;">Features</div>
-        <!-- <span style="font-size:12px; color:#666;">Drag rows to Target</span> -->
-      </div>
-
-      <div id="rsFeaturesDrop"
-        style="border:1px solid #ddd; border-radius:10px; padding:10px; min-height:74px;">
-        <div id="rsFeaturesList" style="display:flex; flex-direction:column; gap:8px;"></div>
-        <div id="rsFeaturesEmpty" style="font-size:10px; color:#777; margin-top:6px;">
-          No features selected yet.
-        </div>
-      </div>
-    </div>
-
-    <!-- TARGET -->
-    <div style="flex:1; min-width:320px;">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
-        <div style="font-weight:600;">Target</div>
-        <!-- <span style="font-size:12px; color:#666;">Drop 1 row here</span> -->
-      </div>
-
-      <div id="rsTargetDrop"
-        style="border:1px solid #ddd; border-radius:10px; padding:10px; min-height:74px;">
-        <div id="rsTargetList" style="display:flex; flex-direction:column; gap:8px;"></div>
-        <div id="rsTargetEmpty" style="font-size:10px; color:#777; margin-top:6px;">
-          No target selected yet.
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
+<div id="pathControls"></div>
 
 <div id="paramText" class="codetext" contenteditable>
 <pre>
@@ -426,71 +199,6 @@ Edit your yaml above and paste into our <a href="input/industries/">Run Models C
 </div>
 
 
-<script>
-  function rsOpenAddPopup() {
-    document.getElementById('rsAddPopup').style.display = 'block';
-    document.getElementById('rsAddBackdrop').style.display = 'block';
-  }
-
-  function rsCloseAddPopup() {
-    document.getElementById('rsAddPopup').style.display = 'none';
-    document.getElementById('rsAddBackdrop').style.display = 'none';
-  }
-
-  function rsGetSelectedRole() {
-    const chosen = document.querySelector('input[name="rs_role"]:checked');
-    return chosen ? chosen.value : 'features';
-  }
-
-  // Keep existing hash params + add rs_role & rs_source, then navigate
-  // Keep existing hash params + add rs_role & rs_source, then navigate
-function rsNavigateWithHash(destPath, source) {
-  const role = rsGetSelectedRole();
-
- 
-  if (role === 'target' && window.rsHasTarget && window.rsHasTarget()) {
-    alert('Only 1 target is allowed. Remove the current target first.');
-    return;
-  }
-
-  const h = (window.location.hash || '').replace(/^#/, '');
-  const p = new URLSearchParams(h);
-
-  p.set('rs_role', role);
-  p.set('rs_source', source);
-
-  rsCloseAddPopup();
-  window.location.href = destPath + '#' + p.toString();
-}
-
-
-
-  document.addEventListener('DOMContentLoaded', function() {
-    const addBtn = document.getElementById('addBtn');
-    const closeBtn = document.getElementById('rsAddClose');
-    const backdrop = document.getElementById('rsAddBackdrop');
-    const btnTimelines = document.getElementById('rsAddTimelines');
-    const btnNaics = document.getElementById('rsAddNaics');
-
-    if (addBtn) addBtn.addEventListener('click', rsOpenAddPopup);
-    if (closeBtn) closeBtn.addEventListener('click', rsCloseAddPopup);
-    if (backdrop) backdrop.addEventListener('click', rsCloseAddPopup);
-
-    
-    if (btnTimelines) btnTimelines.addEventListener('click', function() {
-      rsNavigateWithHash('/localsite/timeline/', 'timelines');
-    });
-
-    if (btnNaics) btnNaics.addEventListener('click', function() {
-      rsNavigateWithHash('/localsite/info', 'naics');
-    });
-
-    // ESC closes popup
-    document.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape') rsCloseAddPopup();
-    });
-  });
-</script>
 
 
 
@@ -556,16 +264,25 @@ if (state.target?.kind === 'dcid' && state.target?.dcid) {
   history.replaceState(null, '', window.location.pathname + (newHash ? '#' + newHash : ''));
 }
 
-function closeAllPopovers() {
-  document.querySelectorAll('.rsPopover').forEach(p => p.remove());
-}
+function updateJoinStatus() {
+  const el = document.getElementById('rsJoinStatus');
+  if (!el) return;
 
-document.addEventListener('click', (e) => {
-  // click outside closes
-  if (!e.target.closest('.rsPopover') && !e.target.closest('.rsInfoBtn')) {
-    closeAllPopovers();
+  const yaml = rsGetYamlObjSafe();
+  const features = (yaml && yaml.features) ? yaml.features : {};
+  const common = (features.common || '').toString().trim();
+  const scope = (features.scope || yaml.scope || '').toString().trim();
+
+  if (!common && !scope) {
+    el.style.display = 'none';
+    return;
   }
-});
+
+  const scopeLabel = scope || 'country';
+  const commonLabel = common || 'FIPS';
+  el.textContent = `Joining on: ${scopeLabel} using common ${commonLabel}`;
+  el.style.display = 'block';
+}
 
 function isProbablyDcid(v) {
   if (!v || typeof v !== 'string') return false;
@@ -611,291 +328,73 @@ function rsGetPathInfoForRole(role) {
 
 
   function createRowCard(item, role) {
-    const el = document.createElement('div');
-    el.className = 'rsRowCard';
-    el.draggable = true;
-    el.dataset.id = item.id;
-    el.dataset.role = role;
-
-    el.style.display = 'flex';
-    el.style.alignItems = 'center';
-    el.style.justifyContent = 'space-between';
-    el.style.gap = '10px';
-    el.style.padding = '10px';
-    el.style.border = '1px solid #ddd';
-    el.style.borderRadius = '10px';
-    el.style.cursor = 'grab';
-
-    const left = document.createElement('div');
-    left.style.display = 'flex';
-    left.style.flexDirection = 'column';
-
-    const title = document.createElement('div');
-    title.style.fontWeight = '600';
-    title.style.fontSize = '12px';   
-    title.textContent = item.label || item.dcid;
-   const titleRow = document.createElement('div');
-titleRow.style.display = 'flex';
-titleRow.style.alignItems = 'center';
-titleRow.style.gap = '8px';
-
-titleRow.appendChild(title);
-left.appendChild(titleRow);
-
-    
-  
-
-    const right = document.createElement('div');
-    right.className = 'rsActions';
-    right.style.display = 'flex';
-    right.style.gap = '8px';
-
-
-   // info icon 
-if (item.href || item.dcid || item.fullPath) {
-  const infoBtn = document.createElement('button');
-  infoBtn.type = 'button';
-  infoBtn.textContent = 'i';
-  infoBtn.title = 'Info';
-  infoBtn.className = 'rsInfoBtn';
-  infoBtn.draggable = false;
-
-  // prevent drag on click
-  infoBtn.addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-  });
-
-  infoBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const existing = el.querySelector('.rsPopover');
-    if (existing) { existing.remove(); return; }
-
-    closeAllPopovers();
-
-    const pop = document.createElement('div');
-    pop.className = 'rsPopover';
-
-    const kindLabel = (item.kind || '').toUpperCase();
-    const value = item.dcid || '';
-    
-const isDcid = (item.kind === 'dcid') || isProbablyDcid(value);
-
- 
-let link = item.href || '';
-if (!isDcid && link && link.includes('datacommons.org/browser')) {
-  link = '';
-}
-
- const fromYaml = rsGetPathInfoForRole(role);
-
-const fullPath = item.fullPath || fromYaml.fullPath || '';
-const hasPH = !!item.hasPlaceholders || fromYaml.hasPH;
-const placeholderPath = item.placeholderPath || fromYaml.placeholderPath || '';
-const previewPath = item.previewPath || fromYaml.previewPath || '';
-const pv = item.previewWith || fromYaml.pv || null;
-
-
-
-const dcidBlock = (value || link) ? `
-  ${value ? `
-    <div class="k">${isProbablyDcid(value) ? 'DCID' : 'DATA'}</div>
-    <div class="v">${value}</div>
-  ` : ''}
-
-  ${link ? `
-    <div class="k">LINK</div>
-    <div class="v">
-      <a href="${link}" target="_blank" rel="noopener noreferrer">${link}</a>
-    </div>
-  ` : ''}
-` : '';
-
-const csvToPreview = previewPath || fullPath;
-const canPreview = !!csvToPreview && /\.csv(\?|#|$)/i.test(csvToPreview);
-
-const pathBlock = fullPath ? `
-  <div class="k">PATH</div>
-  <div class="v">
-    ${hasPH ? `
-      <div>${placeholderPath}</div>
-
-      ${pv ? `
-        <div style="margin-top:10px;">
-          <div class="k" style="margin-top:0;">Preview with:</div>
-          <div class="v">year: ${pv.year}</div>
-          <div class="v">state: ${(!item.previewWith?.state || String(item.previewWith.state).toLowerCase() === 'all') ? 'all (using NY)' : pv.state}</div>
-          <div class="v">naics: ${pv.naics}</div>
-        </div>
-      ` : ''}
-
-      ${canPreview ? `
-        <div class="k">Preview link</div>
-        <div class="v">
-          <a href="${csvToPreview}" class="rsPreviewLink" data-preview="${csvToPreview}">
-            Open preview table
-          </a>
-        </div>
-      ` : ''}
-    ` : `
-      <a href="${fullPath}" target="_blank" rel="noopener noreferrer">${fullPath}</a>
-
-      ${canPreview ? `
-        <div class="k" style="margin-top:10px;">Preview link</div>
-        <div class="v">
-          <a href="${csvToPreview}" class="rsPreviewLink" data-preview="${csvToPreview}">
-            Open preview table
-          </a>
-        </div>
-      ` : ''}
-    `}
-  </div>
-` : '';
-
-
-  pop.innerHTML = `
-   ${dcidBlock}
-  ${dcidBlock && pathBlock ? `<div style="margin-top:10px;"></div>` : ''}
-  ${pathBlock}
-`;
-
-
-
- 
-
-    el.appendChild(pop);
-
-    const previewA = pop.querySelector('.rsPreviewLink');
-if (previewA) {
-  previewA.addEventListener('click', (ev) => {
-    ev.preventDefault();
-    ev.stopPropagation();
-    const url = previewA.getAttribute('data-preview');
-    rsOpenPreviewModal(url);
-  });
-}
-
-  });
-
-   
-  right.appendChild(infoBtn);
-}
-
-const removeBtn = document.createElement('button');
-removeBtn.type = 'button';
-removeBtn.textContent = 'X';
-removeBtn.className = 'rsRemoveBtn';
-
-// prevent drag on click
-removeBtn.draggable = false;
-removeBtn.addEventListener('mousedown', (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-});
-removeBtn.addEventListener('click', (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  removeItem(item.id);
-});
-
-right.appendChild(removeBtn);
-    el.appendChild(left);
-    el.appendChild(right);
-
-    el.addEventListener('dragstart', (e) => {
-      e.dataTransfer.setData('text/plain', JSON.stringify({
-        id: item.id,
-        from: role
-      }));
-    
-      setTimeout(() => el.style.opacity = '0.6', 0);
-    });
-
-    el.addEventListener('dragend', () => {
-      el.style.opacity = '1';
-    });
-
-    return el;
-  }
-
-function updateJoinStatus() {
-  const el = document.getElementById('rsJoinStatus');
-  if (!el) return;
-
-  // Only show when both features and target exist
-  const hasFeature = Array.isArray(state.features) && state.features.length > 0;
-  const hasTarget = !!(state.target && state.target.dcid);
-
-  if (!hasFeature || !hasTarget) {
-    el.style.display = 'none';
-    el.textContent = '';
-    return;
-  }
-
-  // scope comes from URL hash  
-  const p = getHashParams();
-  const scope = (p.get('scope') || 'country').trim() || 'country';
-
-  // common comes from YAML: features.common
-  let common = '';
-  try {
-    const paramTextDiv = document.getElementById('paramText');
-    const preTag = paramTextDiv ? paramTextDiv.querySelector('pre') : null;
-    if (preTag && window.jsyaml) {
-      const yamlObj = jsyaml.load(preTag.textContent) || {};
-      common = (yamlObj.features && yamlObj.features.common) ? String(yamlObj.features.common).trim() : '';
+    if (window.rsCreateRowCard) {
+      const roleLabel = role === 'features' ? 'Features' : 'Targets';
+      const card = window.rsCreateRowCard({
+        item,
+        role,
+        roleLabel,
+        getPathInfo: rsGetPathInfoForRole,
+        isProbablyDcid,
+        onAdd: () => {
+          if (window.rsOpenAddPopupWithRole) {
+            window.rsOpenAddPopupWithRole(role);
+          }
+        },
+        onRemove: () => {
+          removeItem(item.id);
+        },
+        onPreviewInline: (url, tableId) => {
+          rsOpenPreviewInline(url, tableId);
+        }
+      });
+      return card;
     }
-  } catch (e) {
-    // ignore YAML parse errors while user is typing
+
+    const fallback = document.createElement('div');
+    fallback.className = 'rsRowCard';
+    fallback.textContent = item.label || item.dcid;
+    return fallback;
   }
 
-  if (!common) {
-    el.style.display = 'none';
-    el.textContent = '';
-    return;
+
+  function render(shouldSyncYaml = true) {
+    const fList = document.getElementById('rsFeaturesList');
+    const tList = document.getElementById('rsTargetList');
+    const fEmpty = document.getElementById('rsFeaturesEmpty');
+    const tEmpty = document.getElementById('rsTargetEmpty');
+
+    if (!fList || !tList || !fEmpty || !tEmpty) {
+      return;
+    }
+
+    fList.innerHTML = '';
+    tList.innerHTML = '';
+
+    state.features.forEach(item => {
+      const card = createRowCard(item, 'features');
+      fList.appendChild(card);
+      if (card && card._rsAttachMenu) {
+        card._rsAttachMenu();
+        delete card._rsAttachMenu;
+      }
+    });
+    if (state.target) {
+      const card = createRowCard(state.target, 'target');
+      tList.appendChild(card);
+      if (card && card._rsAttachMenu) {
+        card._rsAttachMenu();
+        delete card._rsAttachMenu;
+      }
+    }
+
+    fEmpty.style.display = state.features.length ? 'none' : 'block';
+    tEmpty.style.display = state.target ? 'none' : 'block';
+
+    updateJoinStatus();
+
+    if (shouldSyncYaml) syncYamlFromState();
   }
-
- 
-  const COMMON_LABELS = {
-    Fips: 'FIPS',
-    fips: 'FIPS',
-    Iso2: 'Country ID (ISO2)',
-    iso2: 'Country ID (ISO2)',
-    PostalCode: 'Postal Code',
-    postalcode: 'Postal Code',
-    Voxel: 'Voxel',
-    voxel: 'Voxel'
-  };
-  const commonLabel = COMMON_LABELS[common] || common;
-
-  el.textContent = `Joining on: ${scope} using common ${commonLabel}`;
-  el.style.display = 'block';
-}
-
-
-
- function render(shouldSyncYaml = true) {
-  const fList = document.getElementById('rsFeaturesList');
-  const tList = document.getElementById('rsTargetList');
-  const fEmpty = document.getElementById('rsFeaturesEmpty');
-  const tEmpty = document.getElementById('rsTargetEmpty');
-
-  fList.innerHTML = '';
-  tList.innerHTML = '';
-
-  state.features.forEach(item => fList.appendChild(createRowCard(item, 'features')));
-  if (state.target) tList.appendChild(createRowCard(state.target, 'target'));
-
-  fEmpty.style.display = state.features.length ? 'none' : 'block';
-  tEmpty.style.display = state.target ? 'none' : 'block';
-
-   updateJoinStatus(); 
-
-  if (shouldSyncYaml) syncYamlFromState();
-}
-
 
 
   function removeItem(id) {
@@ -955,6 +454,7 @@ function updateJoinStatus() {
 
   function setupDropZone(zoneId, role) {
     const zone = document.getElementById(zoneId);
+    if (!zone) return;
     zone.addEventListener('dragover', (e) => {
       e.preventDefault();
       zone.style.borderColor = '#4CAF50';
@@ -1262,15 +762,25 @@ window.rsRefreshFromYaml = refreshFromYaml;
 
 
   document.addEventListener('DOMContentLoaded', () => {
-  // Features drop targets
-setupDropZone('rsFeaturesDrop', 'features');
-setupDropZone('rsFeaturesList', 'features');
-setupDropZone('rsFeaturesEmpty', 'features');
+  const initDropZones = () => {
+    // Features drop targets
+    setupDropZone('rsFeaturesList', 'features');
+    setupDropZone('rsFeaturesEmpty', 'features');
 
-// Target drop targets
-setupDropZone('rsTargetDrop', 'target');
-setupDropZone('rsTargetList', 'target');
-setupDropZone('rsTargetEmpty', 'target');
+    // Target drop targets
+    setupDropZone('rsTargetList', 'target');
+    setupDropZone('rsTargetEmpty', 'target');
+  };
+
+  if (typeof waitForElm === 'function') {
+    waitForElm('#rsFeaturesList').then(() => {
+      initDropZones();
+      render(false);
+    });
+  } else {
+    initDropZones();
+    render(false);
+  }
 
 const p0 = getHashParams();
 const savedFeatures = readCsvParam(p0, 'rs_features'); // comma separated
@@ -1455,26 +965,29 @@ function consumeIncomingDcidFromHash() {
 })();
 
 
-  function rsOpenPreviewModal(csvUrl) {
+  function rsOpenPreviewInline(csvUrl, elementId) {
     // Show modal
+    // earthscape.js expects: my.dataset and my.elementID
+    const my = {
+      dataset: csvUrl,
+      elementID: elementId
+    };
+
+    // This will d3.csv(...) then new Tabulator("#rsPreviewTable", ...)
+    loadEarthScape(my);
+  }
+
+  function rsOpenPreviewModal(csvUrl) {
     document.getElementById('rsPreviewBackdrop').style.display = 'block';
     document.getElementById('rsPreviewModal').style.display = 'block';
-
-    // Show the URL (optional)
     document.getElementById('rsPreviewMeta').innerHTML =
       `Source: <a href="${csvUrl}" target="_blank" rel="noopener noreferrer">${csvUrl}</a>`;
-
-    // Clear old table content so Tabulator can re-init cleanly
     const tableEl = document.getElementById('rsPreviewTable');
     tableEl.innerHTML = "";
-
-    // earthscape.js expects: my.dataset and my.elementID
     const my = {
       dataset: csvUrl,
       elementID: "rsPreviewTable"
     };
-
-    // This will d3.csv(...) then new Tabulator("#rsPreviewTable", ...)
     loadEarthScape(my);
   }
 
