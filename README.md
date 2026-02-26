@@ -69,3 +69,23 @@ END
 
 AS y -- the povertyBinary for >= 2% in coming year, and no decline for current year.
 -->
+## Running RealityStream Locally (CLI)
+
+You can run the RealityStream model pipeline locally using the CLI.
+
+### Run with default parameters file
+
+python run_models.py parameters/parameters.yaml
+
+### Run with other parameter files
+
+python run_models.py parameters/parameters-years.yaml
+
+### Expected Output
+
+You should see:
+
+[INFO] RealityStream local runner  
+[INFO] Using parameters file: ...
+
+This confirms the CLI is working correctly.
