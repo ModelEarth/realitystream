@@ -2,6 +2,9 @@ Our [Run Models CoLab](input/industries) provides Logistic Regression, Support V
 
 Paths for **features** and **targets** are joined based on location IDs (state or county FIPS, etc.) or brain regions for [eye blink predictions](models/random-bits-forest/).
 
+For Features, the UI picks `features.dcid` if it exists otherwise `features.data` otherwise the filename from `features.path`.  
+For Targets, it picks `targets.dcid` if it exists otherwise `targets.data` otherwise the filename from `targets.path`.
+
 Our main input is currently industry features by county ID (FIPS) for exploring environmental impact targets like [bee data](../bee-data) and [tree canopy](https://model.earth/tree-canopy/).  
 We are also preping data for [International Trade Flow](https://model.earth/profile/trade).
 

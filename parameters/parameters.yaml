@@ -1,14 +1,15 @@
-folder: naics6-bees-counties
-save-training: false
-features:
+folder: naics6-bees-counties-simple
+features: 
   data: industries
-  startyear: 2017
-  endyear: 2021
-  naics: [6]
-  state: ME,NY
   common: Fips
+  note: One state (or year?) breaks SMOTE which requires more than one class https://github.com/ModelEarth/realitystream/pull/26
+  pathBreaks: https://raw.githubusercontent.com/ModelEarth/community-timelines/main/training/naics2/US/counties/2020/US-ME-training-naics2-counties-2020.csv
+  state: all
+  startyear: 2021
+  endyear: 2021
+  naics: [2]
   path: https://raw.githubusercontent.com/ModelEarth/community-timelines/main/training/naics{naics}/US/counties/{year}/US-{state}-training-naics{naics}-counties-{year}.csv
 targets:
   data: bees
   path: https://raw.githubusercontent.com/ModelEarth/bee-data/main/targets/bees-targets-top-20-percent.csv
-models: xgboost
+models: rbf

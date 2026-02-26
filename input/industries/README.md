@@ -3,7 +3,7 @@
 # Run Models Colab
 
 **Our primary CoLab:**
-Open the colab [Run Models](https://colab.research.google.com/drive/1zu0WcCiIJ5X3iN1Hd1KSW4dGn0JuodB8?usp=sharing) (Includes XGBoost) - Merges Features with Targets based on parameters.yaml
+Open the colab [Run Models](https://colab.research.google.com/drive/15FsWEI8OCvl4sNUDPVuV0bZNUi87HYq_?usp=sharing) (Includes useGPU) and [Prior Colab](https://colab.research.google.com/drive/1zu0WcCiIJ5X3iN1Hd1KSW4dGn0JuodB8?usp=sharing) - Merges Features with Targets based on parameters.yaml
 Backup resides at realitystream/models/Run-Models-bkup.ipynb
 
 **GPU SUPPORT using cuML** In your browser, when using the Run Models notebook, change the runtime type to get the latest speedups from cuML.

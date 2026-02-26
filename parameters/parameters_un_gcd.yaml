@@ -1,0 +1,35 @@
+folder: naics6-un-zip-gdc
+save-training: false
+
+features:
+  data: industries
+  startyear: 2017
+  endyear: 2021
+  naics: [6]
+  state: ME,NY
+  common: Fips
+  path: https://raw.githubusercontent.com/ModelEarth/community-timelines/main/training/naics{naics}/US/counties/{year}/US-{state}-training-naics{naics}-counties-{year}.csv
+
+targets:
+  data: un_topics
+  # DCIDs of places (ZIPs or other areas) you care about
+  # Use real zip/* dcids here
+  dcid:
+    - "zip/10001"      # EXAMPLE: NYC ZIP
+    - "zip/10002"
+    - "zip/10003"
+    - "zip/10004"
+    - "zip/10005"
+    # - "zip/..."      # add more as needed
+
+  # UN / SDG StatVar DCIDs from Google Data Commons (UN topics)
+  variables:
+    - "dc/p/REPLACE_WITH_UN_STATVAR"   # TODO: replace with real StatVar DCID
+
+  # Year or 'LATEST' for the observations
+  year: 2021
+
+  # Name of location column in the output DataFrame (used in your code)
+  common: Zip
+
+models: xgboost
