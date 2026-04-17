@@ -107,7 +107,7 @@ def setup_report_folder(folder_path=REPORT_FOLDER):
 
 from pprint import pformat
 
-# @title 🔧 2. Parameter Widget Setup {"display-mode":"code"}
+# @title 🔧 3. Parameter Widget Setup {"display-mode":"code"}
 models = ['LR','RFC', 'RBF', 'SVM', 'MLP', 'XGBoost']
 
 with open(os.path.join(REPORT_FOLDER, "model-options.csv"), 'w', newline='') as csvfile:
@@ -3392,12 +3392,13 @@ DEFAULT_REPO = "modelearth/reports"
 # --- IMPORTANT: Store your GitHub Token in Colab Secrets under the name 'GITHUB_REPORTS_TOKEN' ---
 # From the left panel, click on the "🔑" icon, then "Add new secret".
 # Name it 'GITHUB_REPORTS_TOKEN' and paste your GitHub Personal Access Token as the value.
+#
 
 # Retrieve token based on environment
 if 'COLAB_GPU' in os.environ:
     # Running in Colab
-    DEFAULT_TOKEN = userdata.get('GITHUB_REPORTS_TOKEN') # Retrieve token from Colab Secrets
-    if DEFAULT_TOKEN is None:
+    GITHUB_REPORTS_TOKEN = userdata.get('GITHUB_REPORTS_TOKEN') # Retrieve token from Colab Secrets
+    if GITHUB_REPORTS_TOKEN is None:
         _message.info(
             "### 🔑 GitHub Token Missing!\n\n"
             "Please set up your GitHub Personal Access Token in Colab Secrets.\n"
@@ -3416,17 +3417,17 @@ else:
         with open(env_path, 'r') as f:
             for line in f:
                 if line.startswith('GITHUB_REPORTS_TOKEN='):
-                    DEFAULT_TOKEN = line.strip().split('=', 1)[1]
+                    GITHUB_REPORTS_TOKEN = line.strip().split('=', 1)[1]
                     break
             else:
-                DEFAULT_TOKEN = None # Token not found in .env
+                GITHUB_REPORTS_TOKEN = None # Token not found in .env
                 print(
                     "### 🔑 GitHub Token Missing!\n\n"
                     f"Expected 'GITHUB_REPORTS_TOKEN' in {env_path}, but it was not found.\n"
                     "Please ensure your .env file exists and contains 'GITHUB_REPORTS_TOKEN=your_token_here'."
                 )
     else:
-        DEFAULT_TOKEN = None # .env file not found
+        GITHUB_REPORTS_TOKEN = None # .env file not found
         print(
             "### 🔑 GitHub Token Missing!\n\n"
             f"Expected .env file at {env_path}, but it was not found.\n"
@@ -3480,7 +3481,7 @@ def remove_sensitive_info(obj):
             parts = token.split('_', 1)
             if len(parts) == 2:
                 # Insert a zero-width space after the first underscore.
-                return parts[0] + '_\u200b' + parts[1]
+                return parts[0] + '_\u200B' + parts[1]
             return token
         return re.sub(pattern, obfuscate_token, obj)
     else:
@@ -3643,9 +3644,112 @@ def upload_reports_to_github(repo, token, branch='main', commit_message='Reports
         print(f"Error uploading files to GitHub: {e}")
         return False
 
-upload_reports_to_github(DEFAULT_REPO, DEFAULT_TOKEN, branch='main', commit_message='Updated visualizations to 72 DPI for web display')
+upload_reports_to_github(DEFAULT_REPO, GITHUB_REPORTS_TOKEN, branch='main', commit_message='Updated visualizations to 72 DPI for web display')
 
-#upload_notebook_to_github("Run-Models-bkup.ipynb", DEFAULT_REPO, DEFAULT_TOKEN, branch='main', commit_message='Update notebook')
+#upload_notebook_to_github("Run-Models-bkup.ipynb", DEFAULT_REPO, GITHUB_REPORTS_TOKEN, branch='main', commit_message='Update notebook')
+
+import os
+import shutil
+from datetime import datetime
+from collections import OrderedDict
+
+# Define DictToObject class (copied here for robustness in case its original definition was skipped)
+class DictToObject:
+    def __init__(self, d):
+        for k, v in d.items():
+            setattr(self, k, DictToObject(v) if isinstance(v, dict) else v)
+
+    def to_dict(self):
+        return {k: v.to_dict() if isinstance(v, DictToObject) else v for k, v in vars(self).items()}
+
+    def __repr__(self):
+        from pprint import pformat
+        body = pformat(self.to_dict(), indent=2, width=80, compact=False, sort_dicts=True)
+        return f"DictToObject(\n{body}\n)"
+
+# Define _simulated_default_params (copied here for robustness)
+_simulated_default_params = {
+    "folder": "default-run-folder", # A default folder name if param is not available
+    "features": {
+        "path": "",
+        "naics": [],
+        "startyear": 0,
+        "endyear": 0,
+        "state": ""
+    },
+    "targets": {
+        "path": ""
+    },
+    "models": []
+}
+
+# Ensure param object and last_edited_dict are defined
+# This provides a robust fallback if parameter widget cells were not executed or their state was lost
+if 'last_edited_dict' not in globals() or not last_edited_dict:
+    print("Warning: 'last_edited_dict' not found or empty. Initializing with default values.")
+    last_edited_dict = _simulated_default_params
+
+if 'param' not in globals():
+    print("Warning: 'param' object not found. Initializing from last_edited_dict.")
+    param = DictToObject(OrderedDict(last_edited_dict))
+
+# Fallback for GITHUB_YEAR if not defined from aLlz3Ts7brgf
+if 'GITHUB_YEAR' not in globals():
+    GITHUB_YEAR = "2026" # Default to a sensible year if not set
+    print(f"Warning: GITHUB_YEAR not defined, defaulting to {GITHUB_YEAR}.")
+
+# Define the base directory for local report copies
+LOCAL_REPORT_COPY_BASE_DIR = "local_report_copies" # Use a distinct name for local copies
+os.makedirs(LOCAL_REPORT_COPY_BASE_DIR, exist_ok=True)
+
+# Get current timestamp for subfolder naming
+current_timestamp_str = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+
+# Determine the folder name from param, or use a default if param.folder is not set
+# param is expected to be available globally from previous cells
+folder_name_from_param = getattr(param, 'folder', 'default-run')
+
+# Construct the full local target path, matching the requested structure
+# This will be e.g., local_report_copies/2026/my-param-folder-YYYY-MM-DDTHH-MM-SS
+local_target_path = os.path.join(
+    LOCAL_REPORT_COPY_BASE_DIR,
+    GITHUB_YEAR, # GITHUB_YEAR is '2026' from cell aLlz3Ts7brgf
+    f"{folder_name_from_param}-{current_timestamp_str}"
+)
+
+# Create the target directory
+os.makedirs(local_target_path, exist_ok=True)
+print(f"Created local report copy directory: {local_target_path}")
+
+# Copy all files from REPORT_FOLDER to the new local directory
+files_copied = 0
+# REPORT_FOLDER is expected to be available globally (e.g., 'report')
+if os.path.exists(REPORT_FOLDER):
+    for item in os.listdir(REPORT_FOLDER):
+        s = os.path.join(REPORT_FOLDER, item)
+        d = os.path.join(local_target_path, item)
+        if os.path.isfile(s):
+            shutil.copy2(s, d)
+            files_copied += 1
+            print(f"Copied: {s} to {d}")
+        # Optional: handle subdirectories if REPORT_FOLDER contains them
+        elif os.path.isdir(s):
+            # shutil.copytree(s, d, dirs_exist_ok=True) # Uncomment if subdirs need to be copied
+            pass
+else:
+    print(f"Warning: REPORT_FOLDER '{REPORT_FOLDER}' not found. No files copied.")
+
+print(f"Copied {files_copied} files from '{REPORT_FOLDER}' to '{local_target_path}'.")
+
+# Print the webroot-relative path and content of parameters.yaml
+parameters_yaml_path = os.path.join(REPORT_FOLDER, "parameters.yaml")
+if os.path.exists(parameters_yaml_path):
+    print(f"\n--- Content of {os.path.join(os.getcwd(), parameters_yaml_path)} ---")
+    with open(parameters_yaml_path, 'r', encoding='utf-8') as f:
+        print(f.read())
+    print(f"----------------------------------------")
+else:
+    print(f"Warning: parameters.yaml not found at {parameters_yaml_path}. Cannot display content.")
 
 """#Pulling Data from Google Data Commons - to be deleted later"""
 
@@ -4614,16 +4718,59 @@ import os
 if 'COLAB_GPU' in os.environ:
     useGPU = True
     print("Detected Google Colab environment. GPU acceleration enabled by default.")
+elif os.environ.get('GOOGLE_CLOUD_GPU_SERVICE', '').lower() in ['true', '1']:
+    useGPU = True
+    print("Detected local environment with GOOGLE_CLOUD_GPU_SERVICE enabled. GPU acceleration enabled.")
+elif os.environ.get('ENABLE_GPU', '').lower() in ['true', '1']:
+    useGPU = True
+    print("ENABLE_GPU is set. GPU acceleration enabled.")
 else:
-    # For local runs, check if GOOGLE_CLOUD_GPU_SERVICE env var is set to enable GPU
-    if os.environ.get('GOOGLE_CLOUD_GPU_SERVICE', '').lower() in ['true', '1']:
-        useGPU = True
-        print("Detected local environment with GOOGLE_CLOUD_GPU_SERVICE enabled. GPU acceleration enabled.")
-    else:
-        useGPU = False
-        print("Detected local environment. GPU acceleration disabled by default.")
+    useGPU = False
+    print("Detected local environment. GPU acceleration disabled by default.")
 
 print(f"'useGPU' flag set to {useGPU}. GPU acceleration will be {'enabled' if useGPU else 'disabled'}. ")
+
+import os
+
+# Folders where run-generated files appear and in future if any files adds-in we can just add-in
+TARGET_FOLDERS = [
+    "output",
+    "rbf",
+    "feature_importance",
+    "report",
+]
+
+# File extensions created by runs
+DELETE_EXTENSIONS = {".csv", ".p", ".pkl", ".pickle", ".json", ".png", ".html"}
+
+# Specific filenames sometimes created without extensions
+DELETE_FILENAMES = {
+    "trainx", "trainy", "testx", "testy", "testyhat"
+}
+
+deleted = []
+
+for folder in TARGET_FOLDERS:
+    if not os.path.isdir(folder):
+        continue
+
+    for root, _, files in os.walk(folder):
+        for file in files:
+            file_path = os.path.join(root, file)
+            _, ext = os.path.splitext(file)
+
+            if file in DELETE_FILENAMES or ext in DELETE_EXTENSIONS:
+                try:
+                    # Print webroot-relative path (relative to /content/ which is Colab's base)
+                    print(f"Deleted: {os.path.relpath(file_path, start=os.getcwd())}")
+                    os.remove(file_path)
+                    deleted.append(file_path)
+                except Exception as e:
+                    print(f"Could not delete {file_path}: {e}")
+
+print("File-only cleanup complete.")
+# Fix cleanup summary line with singular/plural and add a blank line
+print(f"Deleted {len(deleted)} {'file' if len(deleted) == 1 else 'files'}.\n")
 
 save_training = False
 STOP_AT_PARAMS = False
