@@ -3389,21 +3389,21 @@ from google.colab import _message # Import _message for displaying Colab feedbac
 REPORT_FOLDER = "report"  # Define REPORT_FOLDER here
 DEFAULT_REPO = "modelearth/reports"
 
-# --- IMPORTANT: Store your GitHub Token in Colab Secrets under the name 'GITHUB_TOKEN' ---
+# --- IMPORTANT: Store your GitHub Token in Colab Secrets under the name 'GITHUB_REPORTS_TOKEN' ---
 # From the left panel, click on the "🔑" icon, then "Add new secret".
-# Name it 'GITHUB_TOKEN' and paste your GitHub Personal Access Token as the value.
+# Name it 'GITHUB_REPORTS_TOKEN' and paste your GitHub Personal Access Token as the value.
 
 # Retrieve token based on environment
 if 'COLAB_GPU' in os.environ:
     # Running in Colab
-    DEFAULT_TOKEN = userdata.get('GITHUB_TOKEN') # Retrieve token from Colab Secrets
+    DEFAULT_TOKEN = userdata.get('GITHUB_REPORTS_TOKEN') # Retrieve token from Colab Secrets
     if DEFAULT_TOKEN is None:
         _message.info(
             "### 🔑 GitHub Token Missing!\n\n"
             "Please set up your GitHub Personal Access Token in Colab Secrets.\n"
             "1. Click the '🔑' icon on the left panel (Secrets tab).\n"
             "2. Click 'Add new secret'.\n"
-            "3. Set 'Name' to `GITHUB_TOKEN` (case-sensitive).\n"
+            "3. Set 'Name' to `GITHUB_REPORTS_TOKEN` (case-sensitive).\n"
             "4. Paste your token into 'Value'.\n"
             "5. Enable 'Notebook access' using toggle to the left of fields.\n"
             "Then re-run this cell."
@@ -3415,22 +3415,22 @@ else:
     if os.path.exists(env_path):
         with open(env_path, 'r') as f:
             for line in f:
-                if line.startswith('GITHUB_TOKEN='):
+                if line.startswith('GITHUB_REPORTS_TOKEN='):
                     DEFAULT_TOKEN = line.strip().split('=', 1)[1]
                     break
             else:
                 DEFAULT_TOKEN = None # Token not found in .env
                 print(
                     "### 🔑 GitHub Token Missing!\n\n"
-                    f"Expected 'GITHUB_TOKEN' in {env_path}, but it was not found.\n"
-                    "Please ensure your .env file exists and contains 'GITHUB_TOKEN=your_token_here'."
+                    f"Expected 'GITHUB_REPORTS_TOKEN' in {env_path}, but it was not found.\n"
+                    "Please ensure your .env file exists and contains 'GITHUB_REPORTS_TOKEN=your_token_here'."
                 )
     else:
         DEFAULT_TOKEN = None # .env file not found
         print(
             "### 🔑 GitHub Token Missing!\n\n"
             f"Expected .env file at {env_path}, but it was not found.\n"
-            "Please create this file and ensure it contains 'GITHUB_TOKEN=your_token_here'."
+            "Please create this file and ensure it contains 'GITHUB_REPORTS_TOKEN=your_token_here'."
         )
 
 # The following chunk is an effort to run only this last step.
