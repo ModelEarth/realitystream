@@ -909,9 +909,16 @@ import re
 from pathlib import Path
 import time # Tarun 6/2/25
 
-from google.colab import _message
+try:
+    from google.colab import _message
+    from google.colab import userdata
+    from google.colab import files
+except ImportError:
+    _message = None
+    userdata = None
+    files = None
+
 from datetime import datetime
-from google.colab import files
 from io import StringIO
 from collections import OrderedDict
 from IPython.display import display, clear_output
@@ -3858,8 +3865,13 @@ plot_correlation_charts(modelResults, X_train, y_train)
 
 from datetime import datetime
 import os # Import os here
-from google.colab import userdata # Import userdata for Colab Secrets
-from google.colab import _message # Import _message for displaying Colab feedback
+
+try:
+    from google.colab import userdata # Import userdata for Colab Secrets
+    from google.colab import _message # Import _message for displaying Colab feedback
+except ImportError:
+    userdata = None
+    _message = None
 
 REPORT_FOLDER = "report"  # Define REPORT_FOLDER here
 DEFAULT_REPO = "modelearth/reports"
@@ -3872,18 +3884,25 @@ DEFAULT_REPO = "modelearth/reports"
 # Retrieve token based on environment
 if 'COLAB_GPU' in os.environ:
     # Running in Colab
-    GITHUB_REPORTS_TOKEN = userdata.get('GITHUB_REPORTS_TOKEN') # Retrieve token from Colab Secrets
-    if GITHUB_REPORTS_TOKEN is None:
-        _message.info(
-            "### 🔑 GitHub Token Missing!\n\n"
-            "Please set up your GitHub Personal Access Token in Colab Secrets.\n"
-            "1. Click the '🔑' icon on the left panel (Secrets tab).\n"
-            "2. Click 'Add new secret'.\n"
-            "3. Set 'Name' to `GITHUB_REPORTS_TOKEN` (case-sensitive).\n"
-            "4. Paste your token into 'Value'.\n"
-            "5. Enable 'Notebook access' using toggle to the left of fields.\n"
-            "Then re-run this cell."
-        )
+    if userdata is not None: # Check if userdata was successfully imported
+        GITHUB_REPORTS_TOKEN = userdata.get('GITHUB_REPORTS_TOKEN') # Retrieve token from Colab Secrets
+        if GITHUB_REPORTS_TOKEN is None:
+            if _message is not None: # Check if _message was successfully imported
+                _message.info(
+                    "### 🔑 GitHub Token Missing!\n\n"
+                    "Please set up your GitHub Personal Access Token in Colab Secrets.\n"
+                    "1. Click the '🔑' icon on the left panel (Secrets tab).\n"
+                    "2. Click 'Add new secret'.\n"
+                    "3. Set 'Name' to `GITHUB_REPORTS_TOKEN` (case-sensitive).\n"
+                    "4. Paste your token into 'Value'.\n"
+                    "5. Enable 'Notebook access' using toggle to the left of fields.\n"
+                    "Then re-run this cell."
+                )
+            else:
+                print("Warning: _message not imported. GitHub token might be missing from Colab secrets.")
+    else:
+        GITHUB_REPORTS_TOKEN = None
+        print("Warning: userdata not imported. GitHub token cannot be retrieved from Colab secrets.")
 else:
     # Running locally (e.g., .py export). Load from a local .env file.
     # Assume .env file is located at ../../docker/.env relative to the script
@@ -3927,7 +3946,7 @@ def get_file_sha(remote_path, repo, token, branch='main'):
     url = f'https://api.github.com/repos/{repo}/contents/{remote_path}?ref={branch}'
     headers = {
         "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json"
+        "Accept": "application/vnd.github.com.v3+json"
     }
     response = requests.get(url, headers=headers)
     if response.status_code == 200:
