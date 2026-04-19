@@ -100,7 +100,7 @@ from collections import OrderedDict
 import ipywidgets as widgets
 from IPython.display import display, clear_output
 
-STOP_AT_PARAMS = False
+STOP_AT_PARAMS = True
 REPORT_FOLDER = "report"
 
 # Ensure the folder exists immediately
@@ -3901,16 +3901,19 @@ def prepare_gdc_dataset(features_df, targets_df):
         print("Missing GDC data. Cannot prepare dataset.")
         return None, None
 
+    # observations_dataframe() returns 'variable_dcid'; fall back to 'variable' if needed
+    var_col = "variable_dcid" if "variable_dcid" in features_df.columns else "variable"
+
     # Select essential columns
-    f = features_df[["Fips", "variable", "value"]].copy()
-    t = targets_df[["Fips", "variable", "value"]].copy()
+    f = features_df[["Fips", var_col, "value"]].copy()
+    t = targets_df[["Fips", var_col, "value"]].copy()
 
     # Pivot wide: one row per FIPS, one column per variable
     print("Pivoting features...")
-    X = f.pivot_table(index="Fips", columns="variable", values="value", aggfunc="median")
+    X = f.pivot_table(index="Fips", columns=var_col, values="value", aggfunc="median")
 
     print("Pivoting targets...")
-    y_df = t.pivot_table(index="Fips", columns="variable", values="value", aggfunc="median")
+    y_df = t.pivot_table(index="Fips", columns=var_col, values="value", aggfunc="median")
 
     # Flatten target if only one variable
     if y_df.shape[1] == 1:
@@ -7310,82 +7313,123 @@ if useGPU:
     import cupy as cp
 from sklearn.model_selection import train_test_split
 
-# Paths and settings
-features_template = param.features.path
+# --- GDC or URL-based data loading ---
+features_has_dcid = hasattr(param, 'features') and hasattr(param.features, 'dcid')
+targets_has_dcid = hasattr(param, 'targets') and hasattr(param.targets, 'dcid')
 
-naics_values = getattr(param.features, "naics", [])
+if features_has_dcid or targets_has_dcid:
+    # Load data from Google Data Commons
+    print("GDC parameters detected - loading from Google Data Commons...")
+    gdc_features_df, gdc_targets_df = load_gdc_data_if_present(param)
+    if gdc_features_df is None or gdc_targets_df is None:
+        raise ValueError("GDC parameters found but data could not be loaded from Google Data Commons.")
 
-startyear = getattr(param.features, "startyear", 1970)
-endyear = getattr(param.features, "endyear", 1969)
-years = range(startyear, endyear + 1)
+    common_col = getattr(getattr(param, 'features', None), 'common', 'Fips')
 
-states = getattr(param.features, "state", "").split(",")
+    # Pivot features from long → wide (one column per variable)
+    var_col = "variable_dcid" if "variable_dcid" in gdc_features_df.columns else "variable"
+    X_pivot = gdc_features_df.pivot_table(
+        index=common_col, columns=var_col, values="value", aggfunc="median"
+    )
+    X_pivot.columns.name = None
+    X_pivot = X_pivot.reset_index()
 
-full_save_dir = "output/training"
+    # Targets: load_gdc_data_if_present already collapses to [common_col, "Target"]
+    # If still long-format, binarize via median split
+    if "Target" not in gdc_targets_df.columns:
+        t_var = "variable_dcid" if "variable_dcid" in gdc_targets_df.columns else "variable"
+        y_pivot = gdc_targets_df.pivot_table(
+            index=common_col, columns=t_var, values="value", aggfunc="median"
+        )
+        y_pivot.columns.name = None
+        y_pivot = y_pivot.reset_index()
+        first_var = y_pivot.columns[1]
+        y_pivot["Target"] = (y_pivot[first_var] > y_pivot[first_var].median()).astype(int)
+        gdc_targets_df = y_pivot[[common_col, "Target"]]
 
-os.makedirs(full_save_dir, exist_ok=True)
-
-# Build feature file paths
-feature_files = []
-for state in states:
-  for year in years:
-    for naics in naics_values:
-      feature_files.append(features_template.format(naics=naics, year=year, state=state))
-
-if not feature_files:
-  # This means param.features.path is not a template but an actual URL
-  feature_files = [features_template]
-
-print("Constructed Feature File Paths:")
-for feature_file in feature_files:
-    print(feature_file)
-
-# Load feature datasets
-feature_dfs = []
-for feature_file in feature_files:
-    try:
-        feature_dfs.append(pd.read_csv(feature_file))
-        print(f"Loaded feature file: {feature_file}")
-    except Exception as e:
-        print(f"Error loading feature file {feature_file}: {e}")
-
-if not feature_dfs:
-    raise FileNotFoundError("No feature files could be loaded. Please check the paths and try again.")
-
-features_df = pd.concat(feature_dfs, ignore_index=True)
-
-if target_url is None:
-  X_total_cpu = features_df.drop(columns=[target_column])
-  y_total_cpu = features_df[target_column]
-  aligned_df = features_df
+    aligned_df = pd.merge(X_pivot, gdc_targets_df, on=common_col, how="inner")
+    X_total_cpu = aligned_df.drop(columns=["Target"])
+    y_total_cpu = aligned_df["Target"]
+    print(f"GDC dataset ready: X={X_total_cpu.shape}, y={y_total_cpu.shape}")
 else:
+    # URL-based data loading
+    features_template = getattr(param.features, 'path', None)
+    if not features_template:
+        raise ValueError("No 'path' or 'dcid' found in features parameters.")
 
-  # Load target dataset
-  try:
-      target_df = pd.read_csv(target_url)
-      print("Targets loaded successfully.")
-  except Exception as e:
-      raise FileNotFoundError(f"Error loading target file {target_url}: {e}")
+    naics_values = getattr(param.features, "naics", [])
 
-  # Make Fips columns consistent
-  features_df["Fips"] = features_df["Fips"].astype(str)
-  target_df["Fips"] = target_df["Fips"].astype(str)
+    startyear = getattr(param.features, "startyear", 1970)
+    endyear = getattr(param.features, "endyear", 1969)
+    years = range(startyear, endyear + 1)
 
-  # Filter features_df to only Fips present in target_df
-  features_df = features_df[features_df["Fips"].isin(target_df["Fips"])]
+    states = getattr(param.features, "state", "").split(",")
 
-  # Sort and merge
-  features_df = features_df.sort_values(by="Fips")
-  target_df = target_df.sort_values(by="Fips")
+    full_save_dir = "output/training"
 
-  aligned_df = pd.merge(features_df, target_df, on="Fips", how="inner")
+    os.makedirs(full_save_dir, exist_ok=True)
 
-  # Verify merged data
-  print("\nMerged aligned_df shape:", aligned_df.shape)
+    # Build feature file paths
+    feature_files = []
+    for state in states:
+      for year in years:
+        for naics in naics_values:
+          feature_files.append(features_template.format(naics=naics, year=year, state=state))
 
-  # Separate features and target
-  X_total_cpu = aligned_df.drop(columns=["Target"])
-  y_total_cpu = aligned_df["Target"]
+    if not feature_files:
+      # This means param.features.path is not a template but an actual URL
+      feature_files = [features_template]
+
+    print("Constructed Feature File Paths:")
+    for feature_file in feature_files:
+        print(feature_file)
+
+    # Load feature datasets
+    feature_dfs = []
+    for feature_file in feature_files:
+        try:
+            feature_dfs.append(pd.read_csv(feature_file))
+            print(f"Loaded feature file: {feature_file}")
+        except Exception as e:
+            print(f"Error loading feature file {feature_file}: {e}")
+
+    if not feature_dfs:
+        raise FileNotFoundError("No feature files could be loaded. Please check the paths and try again.")
+
+    features_df = pd.concat(feature_dfs, ignore_index=True)
+
+    if target_url is None:
+      X_total_cpu = features_df.drop(columns=[target_column])
+      y_total_cpu = features_df[target_column]
+      aligned_df = features_df
+    else:
+
+      # Load target dataset
+      try:
+          target_df = pd.read_csv(target_url)
+          print("Targets loaded successfully.")
+      except Exception as e:
+          raise FileNotFoundError(f"Error loading target file {target_url}: {e}")
+
+      # Make Fips columns consistent
+      features_df["Fips"] = features_df["Fips"].astype(str)
+      target_df["Fips"] = target_df["Fips"].astype(str)
+
+      # Filter features_df to only Fips present in target_df
+      features_df = features_df[features_df["Fips"].isin(target_df["Fips"])]
+
+      # Sort and merge
+      features_df = features_df.sort_values(by="Fips")
+      target_df = target_df.sort_values(by="Fips")
+
+      aligned_df = pd.merge(features_df, target_df, on="Fips", how="inner")
+
+      # Verify merged data
+      print("\nMerged aligned_df shape:", aligned_df.shape)
+
+      # Separate features and target
+      X_total_cpu = aligned_df.drop(columns=["Target"])
+      y_total_cpu = aligned_df["Target"]
 
 print("X_total_cpu shape:", X_total_cpu.shape)
 print("y_total_cpu shape:", y_total_cpu.shape)
@@ -7431,82 +7475,123 @@ if 'param' not in globals() and 'last_edited_dict' in globals():
 elif 'param' not in globals():
     raise NameError("param object is not defined. Please run the Parameter Editor UI cells first.")
 
-# Paths and settings
-features_template = param.features.path
+# --- GDC or URL-based data loading ---
+features_has_dcid = hasattr(param, 'features') and hasattr(param.features, 'dcid')
+targets_has_dcid = hasattr(param, 'targets') and hasattr(param.targets, 'dcid')
 
-naics_values = getattr(param.features, "naics", [])
+if features_has_dcid or targets_has_dcid:
+    # Load data from Google Data Commons
+    print("GDC parameters detected - loading from Google Data Commons...")
+    gdc_features_df, gdc_targets_df = load_gdc_data_if_present(param)
+    if gdc_features_df is None or gdc_targets_df is None:
+        raise ValueError("GDC parameters found but data could not be loaded from Google Data Commons.")
 
-startyear = getattr(param.features, "startyear", 1970)
-endyear = getattr(param.features, "endyear", 1969)
-years = range(startyear, endyear + 1)
+    common_col = getattr(getattr(param, 'features', None), 'common', 'Fips')
 
-states = getattr(param.features, "state", "").split(",")
+    # Pivot features from long → wide (one column per variable)
+    var_col = "variable_dcid" if "variable_dcid" in gdc_features_df.columns else "variable"
+    X_pivot = gdc_features_df.pivot_table(
+        index=common_col, columns=var_col, values="value", aggfunc="median"
+    )
+    X_pivot.columns.name = None
+    X_pivot = X_pivot.reset_index()
 
-full_save_dir = "output/training"
+    # Targets: load_gdc_data_if_present already collapses to [common_col, "Target"]
+    # If still long-format, binarize via median split
+    if "Target" not in gdc_targets_df.columns:
+        t_var = "variable_dcid" if "variable_dcid" in gdc_targets_df.columns else "variable"
+        y_pivot = gdc_targets_df.pivot_table(
+            index=common_col, columns=t_var, values="value", aggfunc="median"
+        )
+        y_pivot.columns.name = None
+        y_pivot = y_pivot.reset_index()
+        first_var = y_pivot.columns[1]
+        y_pivot["Target"] = (y_pivot[first_var] > y_pivot[first_var].median()).astype(int)
+        gdc_targets_df = y_pivot[[common_col, "Target"]]
 
-os.makedirs(full_save_dir, exist_ok=True)
-
-# Build feature file paths
-feature_files = []
-for state in states:
-  for year in years:
-    for naics in naics_values:
-      feature_files.append(features_template.format(naics=naics, year=year, state=state))
-
-if not feature_files:
-  # This means param.features.path is not a template but an actual URL
-  feature_files = [features_template]
-
-print("Constructed Feature File Paths:")
-for feature_file in feature_files:
-    print(feature_file)
-
-# Load feature datasets
-feature_dfs = []
-for feature_file in feature_files:
-    try:
-        feature_dfs.append(pd.read_csv(feature_file))
-        print(f"Loaded feature file: {feature_file}")
-    except Exception as e:
-        print(f"Error loading feature file {feature_file}: {e}")
-
-if not feature_dfs:
-    raise FileNotFoundError("No feature files could be loaded. Please check the paths and try again.")
-
-features_df = pd.concat(feature_dfs, ignore_index=True)
-
-if target_url is None:
-  X_total_cpu = features_df.drop(columns=[target_column])
-  y_total_cpu = features_df[target_column]
-  aligned_df = features_df
+    aligned_df = pd.merge(X_pivot, gdc_targets_df, on=common_col, how="inner")
+    X_total_cpu = aligned_df.drop(columns=["Target"])
+    y_total_cpu = aligned_df["Target"]
+    print(f"GDC dataset ready: X={X_total_cpu.shape}, y={y_total_cpu.shape}")
 else:
+    # URL-based data loading
+    features_template = getattr(param.features, 'path', None)
+    if not features_template:
+        raise ValueError("No 'path' or 'dcid' found in features parameters.")
 
-  # Load target dataset
-  try:
-      target_df = pd.read_csv(target_url)
-      print("Targets loaded successfully.")
-  except Exception as e:
-      raise FileNotFoundError(f"Error loading target file {target_url}: {e}")
+    naics_values = getattr(param.features, "naics", [])
 
-  # Make Fips columns consistent
-  features_df["Fips"] = features_df["Fips"].astype(str)
-  target_df["Fips"] = target_df["Fips"].astype(str)
+    startyear = getattr(param.features, "startyear", 1970)
+    endyear = getattr(param.features, "endyear", 1969)
+    years = range(startyear, endyear + 1)
 
-  # Filter features_df to only Fips present in target_df
-  features_df = features_df[features_df["Fips"].isin(target_df["Fips"])]
+    states = getattr(param.features, "state", "").split(",")
 
-  # Sort and merge
-  features_df = features_df.sort_values(by="Fips")
-  target_df = target_df.sort_values(by="Fips")
+    full_save_dir = "output/training"
 
-  aligned_df = pd.merge(features_df, target_df, on="Fips", how="inner")
+    os.makedirs(full_save_dir, exist_ok=True)
 
-  # Verify merged data
-  print("\nMerged aligned_df shape:", aligned_df.shape)
+    # Build feature file paths
+    feature_files = []
+    for state in states:
+      for year in years:
+        for naics in naics_values:
+          feature_files.append(features_template.format(naics=naics, year=year, state=state))
 
-  # Separate features and target
-  X_total_cpu = aligned_df.drop(columns=["Target"])
-  y_total_cpu = aligned_df["Target"]
+    if not feature_files:
+      # This means param.features.path is not a template but an actual URL
+      feature_files = [features_template]
+
+    print("Constructed Feature File Paths:")
+    for feature_file in feature_files:
+        print(feature_file)
+
+    # Load feature datasets
+    feature_dfs = []
+    for feature_file in feature_files:
+        try:
+            feature_dfs.append(pd.read_csv(feature_file))
+            print(f"Loaded feature file: {feature_file}")
+        except Exception as e:
+            print(f"Error loading feature file {feature_file}: {e}")
+
+    if not feature_dfs:
+        raise FileNotFoundError("No feature files could be loaded. Please check the paths and try again.")
+
+    features_df = pd.concat(feature_dfs, ignore_index=True)
+
+    if target_url is None:
+      X_total_cpu = features_df.drop(columns=[target_column])
+      y_total_cpu = features_df[target_column]
+      aligned_df = features_df
+    else:
+
+      # Load target dataset
+      try:
+          target_df = pd.read_csv(target_url)
+          print("Targets loaded successfully.")
+      except Exception as e:
+          raise FileNotFoundError(f"Error loading target file {target_url}: {e}")
+
+      # Make Fips columns consistent
+      features_df["Fips"] = features_df["Fips"].astype(str)
+      target_df["Fips"] = target_df["Fips"].astype(str)
+
+      # Filter features_df to only Fips present in target_df
+      features_df = features_df[features_df["Fips"].isin(target_df["Fips"])]
+
+      # Sort and merge
+      features_df = features_df.sort_values(by="Fips")
+      target_df = target_df.sort_values(by="Fips")
+
+      aligned_df = pd.merge(features_df, target_df, on="Fips", how="inner")
+
+      # Verify merged data
+      print("\nMerged aligned_df shape:", aligned_df.shape)
+
+      # Separate features and target
+      X_total_cpu = aligned_df.drop(columns=["Target"])
+      y_total_cpu = aligned_df["Target"]
 
 print("X_total_cpu shape:", X_total_cpu.shape)
 print("y_total_cpu shape:", y_total_cpu.shape)
