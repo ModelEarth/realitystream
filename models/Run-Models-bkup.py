@@ -934,9 +934,14 @@ os.makedirs("report", exist_ok=True) # Tarun 07/27/25
 print(" All imports successful. GPU ready for cuML and cuDF!" if useGPU else " All imports successful. Running on CPU.")
 
 # GPU-Optimized Model Imports
-from cuml.ensemble import RandomForestClassifier
-from cuml.linear_model import LogisticRegression
-from cuml.svm import SVC
+if useGPU:
+    from cuml.ensemble import RandomForestClassifier
+    from cuml.linear_model import LogisticRegression
+    from cuml.svm import SVC
+else:
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier   # MLP remains CPU-based
 from xgboost import XGBClassifier                   # Will set GPU parameters during model creation
 from imblearn.over_sampling import SMOTE            # SMOTE stays on CPU
