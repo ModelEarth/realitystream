@@ -778,56 +778,55 @@ def pip(*args):
         args.insert(0, "-q")
     return [sys.executable, "-u", "-m", "pip", *args]
 
-# --- 0) Explicitly uninstall core scientific packages to prevent binary incompatibility ---
-core_packages = ["numpy", "scipy", "scikit-learn", "pandas", "matplotlib", "seaborn", "imbalanced-learn"]
-_run(pip("uninstall", "-y", *core_packages), label="uninstall core packages")
-
-# --- 1) Uninstall packages that commonly conflict with RAPIDS wheels ----------
-conflicts = [
-    "jax", "jaxlib", "tensorflow", "treescope", "pymc", "thinc", "flax", "optax", "chex",
-    "orbax-checkpoint", "dopamine-rl", "tensorflow-decision-forests", "tables",
-    "spacy", "mlxtend", "fastai", "blosc2", # Existing conflicts
-    "opencv-python", "umap-learn", "cupy-cuda12x", "pytensor", "tsfresh" # Removed "numba", added pytensor, tsfresh
-]
-_run(pip("uninstall", "-y", *conflicts), label="uninstall conflicting packages")
-
-# --- 2) Pin CPU-side stack (choose pins based on Python version) -------------
-PY312_PLUS = sys.version_info >= (3, 12)
-
-# Colab switched to Python 3.12 in made to late August. Check https://github.com/googlecolab/colabtools/issues/5483.
-# So the else block is not required if we don't run the notebook elsewhere.
-if PY312_PLUS:
-    # Py3.12-friendly pins
-    NUMPY_SPEC   = "numpy==1.26.4" # Pinned to 1.26.4 for compatibility with Python 3.12
-    SCIPY_SPEC   = "scipy==1.12.0" # Explicitly pin scipy
-    PANDAS_SPEC  = "pandas==2.2.1" # Explicitly pin pandas for compatibility
-    SKLEARN_SPEC = "scikit-learn>=1.4,<1.6"
-    IMB_SPEC     = "imbalanced-learn>=0.12,<0.13"
-else:
-    NUMPY_SPEC   = "numpy==1.24.4"
-    SCIPY_SPEC   = "scipy==1.10.1" # Explicitly pin scipy for older Python
-    PANDAS_SPEC  = "pandas==1.5.3" # Explicitly pin pandas for older Python
-    SKLEARN_SPEC = "scikit-learn==1.2.2"
-    IMB_SPEC     = "imbalanced-learn==0.11.0"
-
-# Reinstall core packages in order to ensure compatibility
-_run(pip("install", "--no-deps", NUMPY_SPEC), label="install numpy")
-_run(pip("install", "--no-deps", SCIPY_SPEC), label="install scipy")
-_run(pip("install", "--no-deps", PANDAS_SPEC), label="install pandas")
-_run(pip("install", "--no-deps", SKLEARN_SPEC), label="install scikit-learn")
-_run(pip("install", "--no-deps", IMB_SPEC), label="install imbalanced-learn")
-_run(pip("install", "--no-deps", "matplotlib==3.8.3", "seaborn==0.13.2"), label="install matplotlib/seaborn")
-
-# Install numba as it is required by cuDF and must be compatible with RAPIDS versions
-_run(pip("install", "numba==0.59.1"), label="install numba") # Pinned to compatible version
-
-# --- 3) Install RAPIDS 24.04 (CUDA 12) from NVIDIA's index --------------------
-# Note: This setup targets 24.04.* RAPIDS libraries for CUDA 12.
-# We will uninstall pylibcugraph-cu12 separately if it was installed by default.
-
-# NOTE: `useGPU` variable should be defined prior to this cell for conditional RAPIDS installation.
-# Assuming `useGPU` is a global boolean variable (e.g., set to True if on Colab GPU runtime)
 if 'useGPU' in globals() and useGPU:
+    # --- GPU PATH: Uninstall and reinstall core packages for RAPIDS compatibility ---
+
+    # --- 0) Explicitly uninstall core scientific packages to prevent binary incompatibility ---
+    core_packages = ["numpy", "scipy", "scikit-learn", "pandas", "matplotlib", "seaborn", "imbalanced-learn"]
+    _run(pip("uninstall", "-y", *core_packages), label="uninstall core packages")
+
+    # --- 1) Uninstall packages that commonly conflict with RAPIDS wheels ----------
+    conflicts = [
+        "jax", "jaxlib", "tensorflow", "treescope", "pymc", "thinc", "flax", "optax", "chex",
+        "orbax-checkpoint", "dopamine-rl", "tensorflow-decision-forests", "tables",
+        "spacy", "mlxtend", "fastai", "blosc2", # Existing conflicts
+        "opencv-python", "umap-learn", "cupy-cuda12x", "pytensor", "tsfresh" # Removed "numba", added pytensor, tsfresh
+    ]
+    _run(pip("uninstall", "-y", *conflicts), label="uninstall conflicting packages")
+
+    # --- 2) Pin CPU-side stack (choose pins based on Python version) -------------
+    PY312_PLUS = sys.version_info >= (3, 12)
+
+    # Colab switched to Python 3.12 in made to late August. Check https://github.com/googlecolab/colabtools/issues/5483.
+    # So the else block is not required if we don't run the notebook elsewhere.
+    if PY312_PLUS:
+        # Py3.12-friendly pins
+        NUMPY_SPEC   = "numpy==1.26.4" # Pinned to 1.26.4 for compatibility with Python 3.12
+        SCIPY_SPEC   = "scipy==1.12.0" # Explicitly pin scipy
+        PANDAS_SPEC  = "pandas==2.2.1" # Explicitly pin pandas for compatibility
+        SKLEARN_SPEC = "scikit-learn>=1.4,<1.6"
+        IMB_SPEC     = "imbalanced-learn>=0.12,<0.13"
+    else:
+        NUMPY_SPEC   = "numpy==1.24.4"
+        SCIPY_SPEC   = "scipy==1.10.1" # Explicitly pin scipy for older Python
+        PANDAS_SPEC  = "pandas==1.5.3" # Explicitly pin pandas for older Python
+        SKLEARN_SPEC = "scikit-learn==1.2.2"
+        IMB_SPEC     = "imbalanced-learn==0.11.0"
+
+    # Reinstall core packages in order to ensure compatibility
+    _run(pip("install", "--no-deps", NUMPY_SPEC), label="install numpy")
+    _run(pip("install", "--no-deps", SCIPY_SPEC), label="install scipy")
+    _run(pip("install", "--no-deps", PANDAS_SPEC), label="install pandas")
+    _run(pip("install", "--no-deps", SKLEARN_SPEC), label="install scikit-learn")
+    _run(pip("install", "--no-deps", IMB_SPEC), label="install imbalanced-learn")
+    _run(pip("install", "--no-deps", "matplotlib==3.8.3", "seaborn==0.13.2"), label="install matplotlib/seaborn")
+
+    # Install numba as it is required by cuDF and must be compatible with RAPIDS versions
+    _run(pip("install", "numba==0.59.1"), label="install numba") # Pinned to compatible version
+
+    # --- 3) Install RAPIDS 24.04 (CUDA 12) from NVIDIA's index --------------------
+    # Note: This setup targets 24.04.* RAPIDS libraries for CUDA 12.
+    # We will uninstall pylibcugraph-cu12 separately if it was installed by default.
     rapids_pkgs = [
         "cudf-cu12==24.04.*", "cuml-cu12==24.04.*", "dask-cudf-cu12==24.04.*", "dask-cuda==24.04.*",
         "rapids-dask-dependency==24.04.*", "raft-dask-cu12==24.04.*",
@@ -842,7 +841,6 @@ if 'useGPU' in globals() and useGPU:
     # Uninstall pylibcugraph-cu12 if present, as it requires RAPIDS 25.6+
     _run(pip("uninstall", "-y", "pylibcugraph-cu12"), label="uninstall pylibcugraph-cu12")
 
-
     # --- 4) Quick checks ----------------------------------------------------------
     _run([sys.executable, "-c", "import numpy as np; print('NumPy:', np.__version__)"],
          label="NumPy version check")
@@ -850,6 +848,13 @@ if 'useGPU' in globals() and useGPU:
          label="cuML import check")
     _run([sys.executable, "-c", "import cudf; print('cuDF import OK')"],
          label="cuDF import check") # Added cuDF check
+
+else:
+    # --- CPU PATH: Install lightweight CPU-only packages (no uninstall/reinstall needed) ---
+    _run(pip("install", "--upgrade", "xgboost"), label="install xgboost (CPU)")
+    _run(pip("install", "--upgrade", "imbalanced-learn"), label="install imbalanced-learn (CPU)")
+    _run(pip("install", "--upgrade", "scikit-learn"), label="install scikit-learn (CPU)")
+    _run(pip("install", "--upgrade", "matplotlib", "seaborn"), label="install matplotlib/seaborn (CPU)")
 
 print("Done.")
 
@@ -943,13 +948,20 @@ else:
     from sklearn.linear_model import LogisticRegression
     from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier   # MLP remains CPU-based
-from xgboost import XGBClassifier                   # Will set GPU parameters during model creation
+try:
+    from xgboost import XGBClassifier
+except ImportError:
+    XGBClassifier = None
+    print("Warning: xgboost not installed. Run: pip install xgboost")
 from imblearn.over_sampling import SMOTE            # SMOTE stays on CPU
 from sklearn.impute import SimpleImputer
 from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, classification_report, roc_curve, roc_auc_score
-from xgboost import plot_importance
+try:
+    from xgboost import plot_importance
+except ImportError:
+    plot_importance = None
 
 print(" Runtime environment is ready.")
 
@@ -1435,7 +1447,11 @@ if useGPU:
     from cuml.ensemble import RandomForestClassifier as cuRF
     from cuml.linear_model import LogisticRegression as cuLR
     from cuml.svm import SVC as cuSVC
-    from xgboost import XGBClassifier # XGBoost is imported consistently
+    try:
+        from xgboost import XGBClassifier
+    except ImportError:
+        XGBClassifier = None
+        print("Warning: xgboost not installed. Run: pip install xgboost")
 
     # Assign cuml versions
     if 'randomforest' in requested_models: available_model_classes['RandomForest'] = cuRF
@@ -1447,7 +1463,11 @@ else:
     from sklearn.ensemble import RandomForestClassifier as SklearnRF
     from sklearn.linear_model import LogisticRegression as SklearnLR
     from sklearn.svm import SVC as SklearnSVC
-    from xgboost import XGBClassifier # XGBoost is imported consistently
+    try:
+        from xgboost import XGBClassifier
+    except ImportError:
+        XGBClassifier = None
+        print("Warning: xgboost not installed. Run: pip install xgboost")
 
     # Assign sklearn versions
     if 'randomforest' in requested_models: available_model_classes['RandomForest'] = SklearnRF
@@ -2750,7 +2770,11 @@ else:
 
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import classification_report, accuracy_score, roc_auc_score
-from xgboost import XGBClassifier
+try:
+    from xgboost import XGBClassifier
+except ImportError:
+    XGBClassifier = None
+    print("Warning: xgboost not installed. Run: pip install xgboost")
 from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold, train_test_split
 
 
@@ -2802,6 +2826,9 @@ def train_multiple_models(X_train, y_train, X_test, y_test, model_types, random_
             else:
                 model = SklearnRF(n_estimators=100, max_depth=8, random_state=random_state, n_jobs=-1)
         elif model_type == "xgboost":
+            if XGBClassifier is None:
+                print("Skipping XGBoost: not installed. Run: pip install xgboost")
+                continue
             if useGPU:
                 model = XGBClassifier(
                     tree_method="gpu_hist",
@@ -2974,7 +3001,11 @@ from cuml.linear_model import LogisticRegression as cuLR
 from cuml.svm import SVC as cuSVC
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import classification_report, accuracy_score, roc_auc_score
-from xgboost import XGBClassifier
+try:
+    from xgboost import XGBClassifier
+except ImportError:
+    XGBClassifier = None
+    print("Warning: xgboost not installed. Run: pip install xgboost")
 import time
 
 # ------------------ Helper Functions ------------------ #
@@ -3033,6 +3064,9 @@ def train_multiple_models(X_train, y_train, X_test, y_test, model_types, random_
                 n_streams=1
             )
         elif model_type == "xgboost":
+            if XGBClassifier is None:
+                print("Skipping XGBoost: not installed. Run: pip install xgboost")
+                continue
             model = XGBClassifier(
                 tree_method="gpu_hist",
                 predictor="gpu_predictor",
@@ -3440,7 +3474,11 @@ for result in results_no_smote:
 ###Xucen Liao 04/20 - retraining Random Forest, XGboost, and LR based on top 10 important features.
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
-from xgboost import XGBClassifier
+try:
+    from xgboost import XGBClassifier
+except ImportError:
+    XGBClassifier = None
+    print("Warning: xgboost not installed. Run: pip install xgboost")
 
 def retrain_top_10_models(X_train, y_train, X_test, y_test, feature_importance_dict):
     models = {
@@ -5303,13 +5341,21 @@ if useGPU:
     from cuml.ensemble import RandomForestClassifier
     from cuml.linear_model import LogisticRegression
     from cuml.svm import SVC
-    from xgboost import XGBClassifier
+    try:
+        from xgboost import XGBClassifier
+    except ImportError:
+        XGBClassifier = None
+        print("Warning: xgboost not installed. Run: pip install xgboost")
 else:
     # CPU-Based Model Imports
     from sklearn.ensemble import RandomForestClassifier
     from sklearn.linear_model import LogisticRegression
     from sklearn.svm import SVC
-    from xgboost import XGBClassifier # XGBoost can run on CPU too
+    try:
+        from xgboost import XGBClassifier
+    except ImportError:
+        XGBClassifier = None
+        print("Warning: xgboost not installed. Run: pip install xgboost")
 
 from sklearn.neural_network import MLPClassifier   # MLP remains CPU-based in both cases
 from imblearn.over_sampling import SMOTE            # SMOTE stays on CPU
@@ -5317,7 +5363,10 @@ from sklearn.impute import SimpleImputer
 from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, classification_report, roc_curve, roc_auc_score
-from xgboost import plot_importance
+try:
+    from xgboost import plot_importance
+except ImportError:
+    plot_importance = None
 
 print(" Runtime environment is ready.")
 
@@ -6444,7 +6493,11 @@ else:
 
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import classification_report, accuracy_score, roc_auc_score
-from xgboost import XGBClassifier
+try:
+    from xgboost import XGBClassifier
+except ImportError:
+    XGBClassifier = None
+    print("Warning: xgboost not installed. Run: pip install xgboost")
 from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold, train_test_split
 
 # ------------------ Helper Functions ------------------ #
@@ -6509,6 +6562,9 @@ def train_multiple_models(X_train, y_train, X_test, y_test, model_types, random_
             else:
                 model = SklearnRF(n_estimators=100, max_depth=8, random_state=random_state, n_jobs=-1)
         elif model_type == "xgboost":
+            if XGBClassifier is None:
+                print("Skipping XGBoost: not installed. Run: pip install xgboost")
+                continue
             if useGPU:
                 model = XGBClassifier(
                     tree_method="gpu_hist",
@@ -6992,7 +7048,11 @@ else:
     from sklearn.svm import SVC as SklearnSVC
 
 from sklearn.neural_network import MLPClassifier
-from xgboost import XGBClassifier
+try:
+    from xgboost import XGBClassifier
+except ImportError:
+    XGBClassifier = None
+    print("Warning: xgboost not installed. Run: pip install xgboost")
 from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold
 
 # Redefine safe_to_cpu just in case (should be available from 0bb6c726)
@@ -7220,6 +7280,9 @@ def train_multiple_models(X_train, y_train, X_test, y_test, model_types, random_
         if model_type == "rfc":
             model = cuRF(n_estimators=100, max_depth=8, random_state=random_state, n_streams=1) if useGPU else SklearnRF(n_estimators=100, max_depth=8, random_state=random_state, n_jobs=-1)
         elif model_type == "xgboost":
+            if XGBClassifier is None:
+                print("Skipping XGBoost: not installed. Run: pip install xgboost")
+                continue
             model = XGBClassifier(
                 tree_method="gpu_hist",
                 device="cuda",
@@ -7413,7 +7476,11 @@ else:
     from sklearn.svm import SVC as SklearnSVC
 
 from sklearn.neural_network import MLPClassifier
-from xgboost import XGBClassifier
+try:
+    from xgboost import XGBClassifier
+except ImportError:
+    XGBClassifier = None
+    print("Warning: xgboost not installed. Run: pip install xgboost")
 from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold, train_test_split
 
 # ------------------ Helper Functions ------------------ #
@@ -10096,12 +10163,20 @@ if useGPU:
     from cuml.ensemble import RandomForestClassifier # cuML version
     from cuml.linear_model import LogisticRegression # cuML version
     from cuml.svm import SVC # cuML version
-    from xgboost import XGBClassifier # XGBoost is imported consistently
+    try:
+        from xgboost import XGBClassifier
+    except ImportError:
+        XGBClassifier = None
+        print("Warning: xgboost not installed. Run: pip install xgboost")
 else:
     from sklearn.ensemble import RandomForestClassifier # sklearn version
     from sklearn.linear_model import LogisticRegression # sklearn version
     from sklearn.svm import SVC # sklearn version
-    from xgboost import XGBClassifier # XGBoost is imported consistently
+    try:
+        from xgboost import XGBClassifier
+    except ImportError:
+        XGBClassifier = None
+        print("Warning: xgboost not installed. Run: pip install xgboost")
 
 # MLPClassifier and RandomBitsForest are always CPU based, so imported once globally if needed
 # Assuming MLPClassifier is globally imported from sklearn.neural_network (cell MdJKwgi77Lsi)
@@ -10508,12 +10583,20 @@ if useGPU:
     from cuml.ensemble import RandomForestClassifier # cuML version
     from cuml.linear_model import LogisticRegression # cuML version
     from cuml.svm import SVC # cuML version
-    from xgboost import XGBClassifier # XGBoost is imported consistently
+    try:
+        from xgboost import XGBClassifier
+    except ImportError:
+        XGBClassifier = None
+        print("Warning: xgboost not installed. Run: pip install xgboost")
 else:
     from sklearn.ensemble import RandomForestClassifier # sklearn version
     from sklearn.linear_model import LogisticRegression # sklearn version
     from sklearn.svm import SVC # sklearn version
-    from xgboost import XGBClassifier # XGBoost is imported consistently
+    try:
+        from xgboost import XGBClassifier
+    except ImportError:
+        XGBClassifier = None
+        print("Warning: xgboost not installed. Run: pip install xgboost")
 
 # Assign model classes to available_model_classes (class references, not instances)
 if 'randomforest' in requested_models:
@@ -11325,7 +11408,11 @@ else:
 
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import classification_report, accuracy_score, roc_auc_score
-from xgboost import XGBClassifier
+try:
+    from xgboost import XGBClassifier
+except ImportError:
+    XGBClassifier = None
+    print("Warning: xgboost not installed. Run: pip install xgboost")
 from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold, train_test_split
 
 # ------------------ Helper Functions ------------------ #
@@ -11390,6 +11477,9 @@ def train_multiple_models(X_train, y_train, X_test, y_test, model_types, random_
             else:
                 model = SklearnRF(n_estimators=100, max_depth=8, random_state=random_state, n_jobs=-1)
         elif model_type == "xgboost":
+            if XGBClassifier is None:
+                print("Skipping XGBoost: not installed. Run: pip install xgboost")
+                continue
             if useGPU:
                 model = XGBClassifier(
                     tree_method="gpu_hist",
@@ -11577,7 +11667,11 @@ else:
 
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import classification_report, accuracy_score, roc_auc_score
-from xgboost import XGBClassifier
+try:
+    from xgboost import XGBClassifier
+except ImportError:
+    XGBClassifier = None
+    print("Warning: xgboost not installed. Run: pip install xgboost")
 from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold, train_test_split
 
 # ------------------ Helper Functions ------------------ #
@@ -11649,6 +11743,9 @@ def train_multiple_models(X_train, y_train, X_test, y_test, model_types, random_
             else:
                 model = SklearnRF(n_estimators=100, max_depth=8, random_state=random_state, n_jobs=-1)
         elif model_type == "xgboost":
+            if XGBClassifier is None:
+                print("Skipping XGBoost: not installed. Run: pip install xgboost")
+                continue
             if useGPU:
                 model = XGBClassifier(
                     tree_method="gpu_hist",
@@ -13214,7 +13311,11 @@ if useGPU:
     from cuml.ensemble import RandomForestClassifier as cuRF
     from cuml.linear_model import LogisticRegression as cuLR
     from cuml.svm import SVC as cuSVC
-    from xgboost import XGBClassifier # XGBoost is imported consistently
+    try:
+        from xgboost import XGBClassifier
+    except ImportError:
+        XGBClassifier = None
+        print("Warning: xgboost not installed. Run: pip install xgboost")
 
     # Assign cuml versions
     if 'randomforest' in requested_models: available_model_classes['RandomForest'] = cuRF
@@ -13226,7 +13327,11 @@ else:
     from sklearn.ensemble import RandomForestClassifier as SklearnRF
     from sklearn.linear_model import LogisticRegression as SklearnLR
     from sklearn.svm import SVC as SklearnSVC
-    from xgboost import XGBClassifier # XGBoost is imported consistently
+    try:
+        from xgboost import XGBClassifier
+    except ImportError:
+        XGBClassifier = None
+        print("Warning: xgboost not installed. Run: pip install xgboost")
 
     # Assign sklearn versions
     if 'randomforest' in requested_models: available_model_classes['RandomForest'] = SklearnRF
@@ -13624,7 +13729,11 @@ if useGPU:
     from cuml.ensemble import RandomForestClassifier as cuRF
     from cuml.linear_model import LogisticRegression as cuLR
     from cuml.svm import SVC as cuSVC
-    from xgboost import XGBClassifier # XGBoost is imported consistently
+    try:
+        from xgboost import XGBClassifier
+    except ImportError:
+        XGBClassifier = None
+        print("Warning: xgboost not installed. Run: pip install xgboost")
 
     # Assign cuml versions
     if 'randomforest' in requested_models: available_model_classes['RandomForest'] = cuRF
@@ -13636,7 +13745,11 @@ else:
     from sklearn.ensemble import RandomForestClassifier as SklearnRF
     from sklearn.linear_model import LogisticRegression as SklearnLR
     from sklearn.svm import SVC as SklearnSVC
-    from xgboost import XGBClassifier # XGBoost is imported consistently
+    try:
+        from xgboost import XGBClassifier
+    except ImportError:
+        XGBClassifier = None
+        print("Warning: xgboost not installed. Run: pip install xgboost")
 
     # Assign sklearn versions
     if 'randomforest' in requested_models: available_model_classes['RandomForest'] = SklearnRF
