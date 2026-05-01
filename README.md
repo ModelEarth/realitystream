@@ -66,3 +66,9 @@ END
 
 AS y -- the povertyBinary for >= 2% in coming year, and no decline for current year.
 -->
+
+## Fallback Mode
+
+If the Gemini API key has no available quota, the assistant returns a fallback YAML example for local testing.
+
+This allows contributors to test the API route without requiring paid API usage.

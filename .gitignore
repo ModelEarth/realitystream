@@ -11,3 +11,5 @@ env/
 *.pyc
 *.pyo
 .ipynb_checkpoints
+agent/.env
+agent/node_modules/
