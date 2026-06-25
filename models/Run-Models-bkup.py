@@ -10,7 +10,7 @@ Original file is located at
 ### Our 6 Models include Random Forests and XGBoost
 
 ONLY ADD GENERIC PROCESSES
-- Nothting specific to bees, trees, blinks, etc.
+- Nothing specific to bees, trees, blinks, etc.
 - Settings are pasted below from versions of parameters.yaml.
 
 Choose models to run at https://model.earth/realitystream/models  
@@ -18,6 +18,7 @@ Documentation https://model.earth/realitystream (to-do's are at bottom)
 Backup resides in the: [RealityStream models folder](https://github.com/ModelEarth/realitystream/tree/main/models)  
 Info on running locally and using Flask reside in our [cloud repo](https://github.com/modelearth/cloud/).
 
+Get the GITHUB_REPORTS_TOKEN from Loreen and add under the key in the left.
 Our colab automatically deletes prior files so they don't interfer on re-runs.
 
 ✨ Change your runtime type to T4 GPU under Runtime > Change runtime type.
@@ -789,24 +790,18 @@ if STOP_AT_PARAMS:
 
 import os, sys, shlex, subprocess
 
-verbose = True # Set to True for verbose output during installation
+verbose = True  # Set to True for verbose output during installation
 
 # Encourage immediate flushing from Python-based tools (e.g., pip)
 os.environ["PYTHONUNBUFFERED"] = "1"
 
 def _run(cmd, label=None, use_shell=False):
-    """
-    When verbose=True: stream stdout/stderr line-by-line (no buffering surprises).
-    When verbose=False: capture output and print a compact status line.
-    Raises on non-zero exit; on failure with verbose=False, prints captured logs.
-    """
     if isinstance(cmd, str) and not use_shell:
         cmd = shlex.split(cmd)
     if label is None:
         label = (cmd[1] if isinstance(cmd, list) and len(cmd) >= 2 else "command")
 
     if verbose:
-        # Stream live
         proc = subprocess.Popen(
             cmd, shell=use_shell,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -831,91 +826,69 @@ def _run(cmd, label=None, use_shell=False):
             raise
 
 def pip(*args):
-    # Use the current interpreter; quiet pip when not verbose; unbuffer Python (-u)
     args = list(args)
     if not verbose and "-q" not in args and "--quiet" not in args:
         args.insert(0, "-q")
     return [sys.executable, "-u", "-m", "pip", *args]
 
-# ── Detect Colab vs local environment ──────────────────────────────────
-IN_COLAB = 'google.colab' in sys.modules or 'COLAB_GPU' in os.environ
-# ────────────────────────────────────────────────────────────────────────
+# =============================================================================
+# RAPIDS 26 + NumPy 2.x (LOCAL PC WITH NVIDIA CUDA ONLY)
+# -----------------------------------------------------------------------------
+# Uncomment this block only if:
+#   - You are on a local machine with NVIDIA CUDA
+#   - Python version is 3.11 or below
+#   - OR RAPIDS 26 has shipped with Python 3.12 support (expected fall 2025)
+# =============================================================================
 
-if IN_COLAB:
-    # --- 0) Explicitly uninstall core scientific packages to prevent binary incompatibility ---
-    core_packages = ["numpy", "scipy", "scikit-learn", "pandas", "matplotlib", "seaborn", "imbalanced-learn"]
-    _run(pip("uninstall", "-y", *core_packages), label="uninstall core packages")
+# if 'useGPU' in globals() and useGPU:
+#     try:
+#         print("Attempting RAPIDS 26 + NumPy 2.x install...")
+#         rapids_pkgs = [
+#             "cudf-cu12>=26,<27", "cuml-cu12>=26,<27",
+#             "dask-cudf-cu12>=26,<27", "dask-cuda>=26,<27",
+#             "rapids-dask-dependency>=26,<27", "raft-dask-cu12>=26,<27",
+#             "rmm-cu12>=26,<27", "librmm-cu12>=26,<27",
+#             "pylibcudf-cu12>=26,<27", "libraft-cu12>=26,<27",
+#             "pylibraft-cu12>=26,<27", "libcuvs-cu12>=26,<27",
+#             "cuvs-cu12>=26,<27",
+#         ]
+#         _run(pip("install", "--extra-index-url", "https://pypi.nvidia.com", *rapids_pkgs),
+#              label="install RAPIDS 26")
+#         _run([sys.executable, "-c", "import cupy; print('CuPy import OK')"],
+#              label="CuPy import check")
+#         _run([sys.executable, "-c", "import cuml; print('cuML import OK')"],
+#              label="cuML import check")
+#         _run([sys.executable, "-c", "import cudf; print('cuDF import OK')"],
+#              label="cuDF import check")
+#         _run([sys.executable, "-c", "import numpy as np; print('NumPy:', np.__version__)"],
+#              label="NumPy version check")
+#         print("RAPIDS 26 + NumPy 2.x installed and verified successfully.")
+#     except subprocess.CalledProcessError:
+#         print("RAPIDS 26 install failed. Falling back to NumPy 1.x.")
 
-    # --- 1) Uninstall packages that commonly conflict with RAPIDS wheels ----------
-    conflicts = [
-        "jax", "jaxlib", "tensorflow", "treescope", "pymc", "thinc", "flax", "optax", "chex",
-        "orbax-checkpoint", "dopamine-rl", "tensorflow-decision-forests", "tables",
-        "spacy", "mlxtend", "fastai", "blosc2", # Existing conflicts
-        "opencv-python", "umap-learn", "cupy-cuda12x", "pytensor", "tsfresh" # Removed "numba", added pytensor, tsfresh
-    ]
-    _run(pip("uninstall", "-y", *conflicts), label="uninstall conflicting packages")
+# =============================================================================
+# NumPy 1.x — active for all current environments
+# (Google Colab, local CPU, local CUDA until RAPIDS 26 supports Python 3.12)
+# =============================================================================
+rapids_success = False
+PY312_PLUS = sys.version_info >= (3, 12)
+NUMPY_SPEC = "numpy==1.26.4" if PY312_PLUS else "numpy==1.24.4"
+_run(pip("install", NUMPY_SPEC), label="install numpy 1.x")
+_run([sys.executable, "-c",
+      "import numpy as np; assert int(np.__version__.split('.')[0]) < 2, 'NumPy 2.x detected!'; print('NumPy', np.__version__, '— NumPy 1.x confirmed.')"],
+     label="NumPy 1.x check")
 
-    # --- 2) Pin CPU-side stack (choose pins based on Python version) -------------
-    PY312_PLUS = sys.version_info >= (3, 12)
+# --- Always install ----------------------------------------------------------
+_run(pip("install", "matplotlib==3.8.3", "seaborn==0.13.2"), label="install matplotlib/seaborn")
+_run(pip("install", "imbalanced-learn"), label="install imbalanced-learn")
 
-    # Colab switched to Python 3.12 in made to late August. Check https://github.com/googlecolab/colabtools/issues/5483.
-    # So the else block is not required if we don't run the notebook elsewhere.
-    if PY312_PLUS:
-        # Py3.12-friendly pins
-        NUMPY_SPEC   = "numpy==1.26.4" # Pinned to 1.26.4 for compatibility with Python 3.12
-        SCIPY_SPEC   = "scipy==1.12.0" # Explicitly pin scipy
-        PANDAS_SPEC  = "pandas==2.2.1" # Explicitly pin pandas for compatibility
-        SKLEARN_SPEC = "scikit-learn>=1.4,<1.6"
-        IMB_SPEC     = "imbalanced-learn>=0.12,<0.13"
-    else:
-        NUMPY_SPEC   = "numpy==1.24.4"
-        SCIPY_SPEC   = "scipy==1.10.1" # Explicitly pin scipy for older Python
-        PANDAS_SPEC  = "pandas==1.5.3" # Explicitly pin pandas for older Python
-        SKLEARN_SPEC = "scikit-learn==1.2.2"
-        IMB_SPEC     = "imbalanced-learn==0.11.0"
-
-    # Reinstall core packages in order to ensure compatibility
-    _run(pip("install", "--no-deps", NUMPY_SPEC), label="install numpy")
-    _run(pip("install", "--no-deps", SCIPY_SPEC), label="install scipy")
-    _run(pip("install", "--no-deps", PANDAS_SPEC), label="install pandas")
-    _run(pip("install", "--no-deps", SKLEARN_SPEC), label="install scikit-learn")
-    _run(pip("install", "--no-deps", IMB_SPEC), label="install imbalanced-learn")
-    _run(pip("install", "--no-deps", "matplotlib==3.8.3", "seaborn==0.13.2"), label="install matplotlib/seaborn")
-
-    # Install numba as it is required by cuDF and must be compatible with RAPIDS versions
-    _run(pip("install", "numba==0.59.1"), label="install numba") # Pinned to compatible version
-
-    # --- 3) Install RAPIDS 24.04 (CUDA 12) from NVIDIA's index --------------------
-    # Note: This setup targets 24.04.* RAPIDS libraries for CUDA 12.
-    # We will uninstall pylibcugraph-cu12 separately if it was installed by default.
-
-    # NOTE: `useGPU` variable should be defined prior to this cell for conditional RAPIDS installation.
-    # Assuming `useGPU` is a global boolean variable (e.g., set to True if on Colab GPU runtime)
-    if 'useGPU' in globals() and useGPU:
-        rapids_pkgs = [
-            "cudf-cu12==24.04.*", "cuml-cu12==24.04.*", "dask-cudf-cu12==24.04.*", "dask-cuda==24.04.*",
-            "rapids-dask-dependency==24.04.*", "raft-dask-cu12==24.04.*",
-            "rmm-cu12==24.04.*", "librmm-cu12==24.04.*", "pylibcudf-cu12==24.04.*",
-            "libraft-cu12==24.04.*", "pylibraft-cu12==24.04.*", "libcuvs-cu12==24.04.*",
-            "cuvs-cu12==24.04.*", "ucx-py-cu12==0.36.*", "ucxx-cu12==0.36.*", "distributed-ucxx-cu12==0.36.*"
-        ]
-        _run(pip("install", "--extra-index-url", "https://pypi.nvidia.com", *rapids_pkgs),
-             label="install (RAPIDS 24.04)")
-
-        # Only attempt uninstall if RAPIDS installed successfully
-        # Uninstall pylibcugraph-cu12 if present, as it requires RAPIDS 25.6+
-        _run(pip("uninstall", "-y", "pylibcugraph-cu12"), label="uninstall pylibcugraph-cu12")
-
-        # --- 4) Quick checks ----------------------------------------------------------
-        _run([sys.executable, "-c", "import numpy as np; print('NumPy:', np.__version__)"],
-             label="NumPy version check")
-        _run([sys.executable, "-c", "import cuml; print('cuML import OK')"],
-             label="cuML import check")
-        _run([sys.executable, "-c", "import cudf; print('cuDF import OK')"],
-             label="cuDF import check") # Added cuDF check
-
-else:
-    print("Local environment detected — skipping package reinstall. Using existing environment.")
+# --- Force NumPy 1.x after all installs --------------------------------------
+# Prevents any dependency (e.g. imbalanced-learn, scikit-learn) from silently
+# upgrading NumPy to 2.x, which causes shared library mismatches at import time.
+_run(pip("install", "--force-reinstall", NUMPY_SPEC), label="force reinstall numpy 1.x")
+_run([sys.executable, "-c",
+      "import numpy as np; assert int(np.__version__.split('.')[0]) < 2, 'NumPy 2.x detected!'; print('NumPy', np.__version__, '— NumPy 1.x confirmed.')"],
+     label="NumPy 1.x final check")
 
 print("Done.")
 
@@ -990,7 +963,7 @@ from collections import OrderedDict
 from IPython.display import display, clear_output
 
 # Conditional imports based on useGPU flag
-if useGPU:
+if useGPU and not rapids_success:
     import cudf
     import cuml
     import cupy as cp
@@ -999,7 +972,7 @@ os.makedirs("report", exist_ok=True) # Tarun 07/27/25
 
 print(" All imports successful. GPU ready for cuML and cuDF!" if useGPU else " All imports successful. Running on CPU.")
 
-if useGPU:
+if useGPU and rapids_success:
     # GPU-Optimized Model Imports
     from cuml.ensemble import RandomForestClassifier
     from cuml.linear_model import LogisticRegression
