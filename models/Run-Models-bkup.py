@@ -3951,8 +3951,16 @@ if 'COLAB_GPU' in os.environ:
         print("Warning: userdata not imported. GitHub token cannot be retrieved from Colab secrets.")
 else:
     # Running locally (e.g., .py export). Load from a local .env file.
-    # Assume .env file is located at ../../docker/.env relative to the script
-    env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'docker', '.env'))
+    # The webroot's shared .env is located by env_file in ../../automation/paths.yaml relative to the script
+    import re
+    automation_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'automation'))
+    env_path = ''
+    paths_yaml = os.path.join(automation_dir, 'paths.yaml')
+    if os.path.exists(paths_yaml):
+        with open(paths_yaml, 'r') as f:
+            env_file_match = re.search(r'^\s*env_file:\s*(.+)$', f.read(), re.MULTILINE)
+        if env_file_match:
+            env_path = os.path.join(automation_dir, re.sub(r'\s+#.*$', '', env_file_match.group(1)).strip().strip('"\''))
     if os.path.exists(env_path):
         with open(env_path, 'r') as f:
             for line in f:
