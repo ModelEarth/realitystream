@@ -99,6 +99,16 @@ else:
     useGPU = False
     print("Detected local environment. GPU acceleration disabled by default.")
 
+# Colab also sets COLAB_GPU on CPU runtimes, and cuML may not be installed even on a GPU
+# runtime. Only keep useGPU=True if cuML actually imports; otherwise every later
+# `from cuml.ensemble import RandomForestClassifier` would fail.
+if useGPU:
+    try:
+        import cuml  # noqa: F401
+    except ImportError:
+        useGPU = False
+        print("cuML is not installed in this runtime; falling back to CPU (scikit-learn) models.")
+
 print(f"'useGPU' flag set to {useGPU}. GPU acceleration will be {'enabled' if useGPU else 'disabled'}. ")
 
 # Folders where run-generated files appear and in future if any files adds-in we can just add-in
