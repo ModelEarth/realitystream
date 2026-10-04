@@ -64,6 +64,14 @@ def _get_common_join_column(param):
 # Data loading
 # ---------------------------------------------------------------------------
 
+# 50 states; used when the YAML says ``state: all``.
+US_STATES = [
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID",
+    "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO",
+    "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA",
+    "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+]
+
 def load_parameters(yaml_path: str) -> dict:
     """Load and return the YAML parameters dict."""
     with open(yaml_path, "r", encoding="utf-8") as fh:
@@ -93,6 +101,8 @@ def _build_feature_urls(param) -> list[str]:
 
     if isinstance(states_raw, list):
         states = states_raw
+    elif str(states_raw).strip().lower() == "all":
+        states = US_STATES
     elif states_raw:
         states = [s.strip() for s in str(states_raw).split(",")]
     else:
@@ -316,14 +326,17 @@ def train_and_evaluate(model, X_train, y_train, X_test, y_test):
 def apply_smote(X_train, y_train):
     """Apply SMOTE oversampling; returns resampled X, y."""
     from imblearn.over_sampling import SMOTE
-    from sklearn.impute import SimpleImputer
-    import numpy as np
 
-    imputer = SimpleImputer(strategy="mean")
-    X_imp = imputer.fit_transform(X_train)
-    sm = SMOTE(random_state=42)
-    X_res, y_res = sm.fit_resample(X_imp, y_train)
-    return pd.DataFrame(X_res, columns=X_train.columns), y_res
+    # Impute in pandas so all-NaN columns are kept (SimpleImputer drops them,
+    # which made the resampled array narrower than X_train.columns).
+    X_imp = X_train.fillna(X_train.mean()).fillna(0)
+    # SMOTE needs k_neighbors < minority count; small states have very few rows.
+    minority = int(y_train.value_counts().min())
+    if minority < 2:
+        print("   [WARN] Minority class has <2 samples, skipping SMOTE.")
+        return X_train, y_train
+    sm = SMOTE(random_state=42, k_neighbors=min(5, minority - 1))
+    return sm.fit_resample(X_imp, y_train)
 
 
 # ---------------------------------------------------------------------------
