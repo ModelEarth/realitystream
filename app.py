@@ -1,17 +1,16 @@
 """
-RealityStream Cloud Run – Flask wrapper for the ML pipeline.
+RealityStream Cloud Run: Flask wrapper around run_models.run_pipeline.
 
-Exposes:
-    POST /run   – Run the pipeline with a YAML config body.
-    GET  /health – Liveness / readiness probe.
+    GET  /health            liveness probe
+    POST /run[?upload=1]    body = parameters.yaml text; returns the run summary as JSON
 
-Deployment:
-    gcloud run deploy realitystream --source .
-or locally:
-    python app.py
+A missing key (for example GITHUB_REPORTS_TOKEN when upload=1) returns HTTP 400 with
+`how_to_get_it`, which the front end shows to the user instead of a stack trace.
+
+Deploy:  gcloud run deploy realitystream --source .      (see deploy-cloud-run.sh)
+Local:   python app.py
 """
 
-import json
 import os
 import tempfile
 
@@ -22,57 +21,33 @@ app = Flask(__name__)
 
 @app.route("/health", methods=["GET"])
 def health():
-    """Health-check endpoint for Cloud Run / load balancers."""
     return jsonify({"status": "ok"}), 200
 
 
 @app.route("/run", methods=["POST"])
 def run():
-    """
-    Accept a YAML configuration (as the request body) and run the
-    RealityStream ML pipeline.  Returns JSON results.
-
-    Example:
-        curl -X POST http://localhost:8080/run \
-             -H "Content-Type: text/yaml" \
-             --data-binary @parameters/parameters-blinks.yaml
-    """
     yaml_body = request.get_data(as_text=True)
     if not yaml_body.strip():
-        return jsonify({"error": "Empty request body – send a YAML config"}), 400
+        return jsonify({"status": "error", "message": "Empty request body; send a parameters.yaml"}), 400
+    upload = request.args.get("upload", "").lower() in ("1", "true")
 
-    # Write to a temp file so run_pipeline can load it normally
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".yaml", delete=False, encoding="utf-8"
-    ) as tmp:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, encoding="utf-8") as tmp:
         tmp.write(yaml_body)
-        tmp_path = tmp.name
-
+        yaml_path = tmp.name
+    report_dir = tempfile.mkdtemp(prefix="report_")
     try:
-        # Import here to keep startup fast
-        from run_models import run_pipeline
+        from run_models import MissingKey, run_pipeline
 
-        results = run_pipeline(tmp_path)
-
-        # Strip the verbose text report for JSON response
-        clean = []
-        for r in results:
-            clean.append({
-                "model": r["model"],
-                "accuracy": r["accuracy"],
-                "roc_auc": r["roc_auc"],
-                "duration_seconds": r["duration_seconds"],
-                "classification_report": r["classification_report"],
-            })
-        return jsonify({"status": "success", "results": clean}), 200
-
+        try:
+            summary = run_pipeline(yaml_path, report_dir=report_dir, upload=upload)
+        except MissingKey as exc:
+            return jsonify({"status": "missing_key", "key": exc.name, "how_to_get_it": exc.how_to_get_it}), 400
+        return jsonify({"status": "success", **summary}), 200
     except Exception as exc:
         return jsonify({"status": "error", "message": str(exc)}), 500
-
     finally:
-        os.unlink(tmp_path)
+        os.unlink(yaml_path)
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

@@ -20,7 +20,7 @@ def main():
     env = os.environ.copy()
     env["PARAMETERS_YAML_PATH"] = params_path
 
-    notebook = "models/Run-Models-bkup.ipynb"
+    notebook = "models/Run_Models.ipynb"
     output_nb = "Run-Models-output.ipynb"
 
     cmd = [
