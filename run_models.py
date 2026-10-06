@@ -176,6 +176,16 @@ class DictToObject:
         return {k: v.to_dict() if isinstance(v, DictToObject) else v for k, v in vars(self).items()}
 
 
+PARAMETER_PATHS_URL = "https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameter-paths.csv"
+
+
+def default_parameters_url():
+    """First entry of parameter-paths.csv, the colab's default selection."""
+    for name, link in csv.reader(StringIO(requests.get(PARAMETER_PATHS_URL, timeout=60).text)):
+        return link
+    raise ValueError("parameter-paths.csv is empty")
+
+
 def load_parameters(yaml_path_or_url):
     """Load the YAML (local path or URL); normalise `models` to canonical lowercase keys."""
     if yaml_path_or_url.startswith(("http://", "https://")):
@@ -749,7 +759,9 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=20):
 def main():
     parser = argparse.ArgumentParser(description="Run RealityStream models from a parameters.yaml",
                                      epilog="Model keys: lr, rfc, rbf, svm, mlp, xgboost")
-    parser.add_argument("yaml", help="parameters.yaml path or URL")
+    parser.add_argument("yaml", nargs="?", default=os.environ.get("PARAMETERS_YAML_PATH"),
+                        help="parameters.yaml path or URL (default: $PARAMETERS_YAML_PATH, else the first "
+                             "entry of parameters/parameter-paths.csv, as in the colab)")
     parser.add_argument("--report-dir", default="report", help="output folder (default: report)")
     parser.add_argument("--upload", action="store_true", help="push the report folder to modelearth/reports")
     parser.add_argument("--n-iter", type=int, default=20, help="RandomizedSearchCV iterations for xgboost/mlp")
