@@ -95,10 +95,17 @@ def env_file_path():
 
 
 def get_env(name, default=None):
-    """Return one setting: os.environ first, then the single matching line of the env file."""
+    """Return one setting: os.environ, then the OS credential store, then the single matching line of the env file."""
     value = os.environ.get(name)
     if value:
         return value
+    try:  # local OS credential store, filled by cloud/run's /keys page (optional dependency)
+        import keyring
+        value = keyring.get_password("modelearth", name)
+        if value:
+            return value
+    except Exception:
+        pass
     path = env_file_path()
     if path and os.path.exists(path):
         with open(path, encoding="utf-8") as fh:
