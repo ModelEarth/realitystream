@@ -1,34 +1,176 @@
 """
-RealityStream CLI – Run ML models from a parameters.yaml file.
+RealityStream: run the "Run Models" pipeline from a parameters.yaml file.
+
+This is the trimmed, importable version of the Run Models colab
+(models/Run_Models.ipynb). It produces the same report folder the colab
+pushes to github.com/modelearth/reports:
+
+    report/
+      README.md, index.html, parameters.yaml, model-options.csv
+      model_performance_report_no_smote.csv
+      model_performance_report_smote.csv
+      feature_importance_xgboost.csv
 
 Usage:
     python run_models.py parameters/parameters.yaml
-    python run_models.py parameters/parameters-blinks.yaml
-    python run_models.py --help
+    python run_models.py parameters/parameters-blinks.yaml --upload
+    python run_models.py https://raw.githubusercontent.com/.../parameters.yaml
 
-This replaces the Colab notebook workflow with a local/Cloud Run-friendly
-Python script.  All heavy imports (sklearn, xgboost, …) are deferred so that
-``--help`` stays fast.
+Settings (GITHUB_REPORTS_TOKEN, DATACOMMONS_API_KEY, ENABLE_GPU) are read one
+name at a time from the environment, then from the env file named by
+automation/paths.yaml in the webroot. The whole env file is never loaded.
 """
 
 import argparse
 import csv
-import json
 import os
+import platform
+import re
+import shutil
+import subprocess
 import sys
-import textwrap
+import tempfile
 import time
+import uuid
+import zipfile
+from collections import OrderedDict
+from datetime import datetime
+from io import StringIO
+from pathlib import Path
+from urllib.request import Request, urlopen
 
+import numpy as np
 import pandas as pd
 import requests
 import yaml
-from collections import OrderedDict
-from io import StringIO
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+RANDOM_STATE = 42
+REPORTS_REPO = "modelearth/reports"
+REPORT_TEMPLATE_URL = (
+    "https://raw.githubusercontent.com/ModelEarth/localsite/refs/heads/main/start/template/report.html"
+)
+NAICS6_NAMES_URL = "https://github.com/ModelEarth/concordance/raw/master/data-raw/6-digit_2017_Codes.xlsx"
+RBF_BINARY_URL = "https://downloads.sourceforge.net/project/random-bits-forest/rbf.zip"
+
+# ---------------------------------------------------------------------------
+# Settings: one value by name, never the whole env file
+# ---------------------------------------------------------------------------
+
+KEY_HELP = {
+    "GITHUB_REPORTS_TOKEN": (
+        "GitHub personal access token with write access to modelearth/reports. "
+        "Create one at https://github.com/settings/tokens (classic token, 'repo' scope), "
+        "then add GITHUB_REPORTS_TOKEN=<token> to the env file named in automation/paths.yaml."
+    ),
+    "DATACOMMONS_API_KEY": (
+        "Google Data Commons API key. Request one at https://docs.datacommons.org/api/ "
+        "(see 'Get an API key'), then add DATACOMMONS_API_KEY=<key> to the env file named in "
+        "automation/paths.yaml."
+    ),
+}
+
+
+class MissingKey(Exception):
+    """A required setting is absent. `how_to_get_it` is safe to show to end users."""
+
+    def __init__(self, name):
+        self.name = name
+        self.how_to_get_it = KEY_HELP.get(name, f"Add {name}=<value> to the env file named in automation/paths.yaml.")
+        super().__init__(f"{name} is not set. {self.how_to_get_it}")
+
+
+def env_file_path():
+    """Absolute path of the shared env file, from automation/paths.yaml, or None."""
+    for automation in (os.path.join(HERE, "..", "automation"), os.path.join(HERE, "..", "..", "automation")):
+        paths_yaml = os.path.join(automation, "paths.yaml")
+        if not os.path.exists(paths_yaml):
+            continue
+        with open(paths_yaml, encoding="utf-8") as fh:
+            match = re.search(r"^\s*env_file:\s*(.+)$", fh.read(), re.MULTILINE)
+        if match:
+            value = re.sub(r"\s+#.*$", "", match.group(1)).strip().strip("\"'")
+            return os.path.abspath(os.path.join(automation, value))
+    return None
+
+
+def get_env(name, default=None):
+    """Return one setting: os.environ, then the OS credential store, then the single matching line of the env file."""
+    value = os.environ.get(name)
+    if value:
+        return value
+    try:  # local OS credential store, filled by cloud/run's /keys page (optional dependency)
+        import keyring
+        value = keyring.get_password("modelearth", name)
+        if value:
+            return value
+    except Exception:
+        pass
+    path = env_file_path()
+    if path and os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith(name + "="):
+                    return line.split("=", 1)[1].strip().strip("\"'") or default
+    return default
+
+
+def require_env(name):
+    value = get_env(name)
+    if not value:
+        raise MissingKey(name)
+    return value
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# GPU
 # ---------------------------------------------------------------------------
+
+_GPU = None
+
+
+def gpu_enabled():
+    """True when a GPU runtime is requested AND cuML imports. Cached."""
+    global _GPU
+    if _GPU is None:
+        wanted = "COLAB_GPU" in os.environ or str(get_env("ENABLE_GPU", "")).lower() in ("1", "true") \
+            or str(get_env("GOOGLE_CLOUD_GPU_SERVICE", "")).lower() in ("1", "true")
+        if wanted:
+            try:
+                import cuml  # noqa: F401
+            except ImportError:
+                print("[GPU] cuML is not installed; running CPU (scikit-learn) models.")
+                wanted = False
+        _GPU = wanted
+    return _GPU
+
+
+def to_cpu(data):
+    """cupy / cudf -> numpy / pandas; everything else unchanged."""
+    mod = type(data).__module__
+    if mod.startswith("cupy"):
+        return data.get()
+    if mod.startswith("cudf"):
+        return data.to_pandas()
+    return data
+
+
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
+
+MODEL_KEYS = {
+    "lr": "lr", "logisticregression": "lr",
+    "rfc": "rfc", "randomforest": "rfc",
+    "rbf": "rbf", "randombitsforest": "rbf",
+    "svm": "svm", "mlp": "mlp",
+    "xgboost": "xgboost", "xgb": "xgboost",
+}
+MODEL_TITLES = {
+    "lr": "Logistic Regression", "rfc": "Random Forest Classifier", "rbf": "Random Bits Forest",
+    "svm": "Support Vector Machine", "mlp": "Multi-Layer Perceptron", "xgboost": "XGBoost",
+}
+
 
 class DictToObject:
     """Recursively convert a dict to an object with dot-notation access."""
@@ -38,33 +180,53 @@ class DictToObject:
             setattr(self, k, DictToObject(v) if isinstance(v, dict) else v)
 
     def to_dict(self):
-        return {
-            k: v.to_dict() if isinstance(v, DictToObject) else v
-            for k, v in vars(self).items()
-        }
-
-    def __repr__(self):
-        from pprint import pformat
-        body = pformat(self.to_dict(), indent=2, width=80)
-        return f"DictToObject(\n{body}\n)"
+        return {k: v.to_dict() if isinstance(v, DictToObject) else v for k, v in vars(self).items()}
 
 
-def _get_common_join_column(param):
-    """Return the column name used to join features ↔ targets."""
-    if hasattr(param, "features") and hasattr(param.features, "common") and param.features.common:
-        return param.features.common
-    if hasattr(param, "targets") and hasattr(param.targets, "common") and param.targets.common:
-        return param.targets.common
-    if hasattr(param, "common") and param.common:
-        return param.common
-    return "Fips"
+PARAMETER_PATHS_URL = "https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameter-paths.csv"
+
+
+def default_parameters_url():
+    """First entry of parameter-paths.csv, the colab's default selection."""
+    for name, link in csv.reader(StringIO(requests.get(PARAMETER_PATHS_URL, timeout=60).text)):
+        return link
+    raise ValueError("parameter-paths.csv is empty")
+
+
+def load_parameters(yaml_path_or_url):
+    """Load the YAML (local path or URL); normalise `models` to canonical lowercase keys."""
+    if yaml_path_or_url.startswith(("http://", "https://")):
+        text = requests.get(yaml_path_or_url, timeout=60).text
+    else:
+        with open(yaml_path_or_url, encoding="utf-8") as fh:
+            text = fh.read()
+    params = yaml.safe_load(text) or {}
+    models = params.get("models", [])
+    if isinstance(models, str):
+        models = [models]
+    keys = []
+    for m in models:
+        key = MODEL_KEYS.get(str(m).lower())
+        if key is None:
+            print(f"[WARN] Unknown model '{m}', choose from {sorted(set(MODEL_KEYS.values()))}")
+        elif key not in keys:
+            keys.append(key)
+    params["models"] = keys
+    return params
+
+
+def _common_column(param):
+    for holder in ("features", "targets"):
+        obj = getattr(param, holder, None)
+        if obj is not None and getattr(obj, "common", None):
+            return obj.common
+    return getattr(param, "common", None) or "Fips"
 
 
 # ---------------------------------------------------------------------------
-# Data loading
+# Data
 # ---------------------------------------------------------------------------
 
-# 50 states; used when the YAML says ``state: all``.
 US_STATES = [
     "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID",
     "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO",
@@ -72,398 +234,552 @@ US_STATES = [
     "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
 ]
 
-def load_parameters(yaml_path: str) -> dict:
-    """Load and return the YAML parameters dict."""
-    with open(yaml_path, "r", encoding="utf-8") as fh:
-        params = yaml.safe_load(fh) or {}
-    # Normalise models to a list
-    models = params.get("models", [])
-    if isinstance(models, str):
-        models = [models]
-    params["models"] = models
-    return params
 
-
-def _build_feature_urls(param) -> list[str]:
-    """Expand the features URL template into concrete URLs."""
-    template = param.features.path
+def build_feature_urls(param):
+    """Expand the features.path template over naics x year x state."""
+    template = getattr(param.features, "path", None)
     if not template:
         return []
-
-    # Direct URL (no placeholders)
     if "{" not in template:
         return [template]
-
-    naics_values = getattr(param.features, "naics", [])
-    startyear = getattr(param.features, "startyear", None)
-    endyear = getattr(param.features, "endyear", None)
-    states_raw = getattr(param.features, "state", "")
-
-    if isinstance(states_raw, list):
-        states = states_raw
-    elif str(states_raw).strip().lower() == "all":
+    naics = getattr(param.features, "naics", []) or [0]
+    if not isinstance(naics, list):
+        naics = [naics]
+    start, end = getattr(param.features, "startyear", None), getattr(param.features, "endyear", None)
+    years = list(range(start, end + 1)) if start and end else [0]
+    raw = getattr(param.features, "state", "")
+    if isinstance(raw, list):
+        states = raw
+    elif str(raw).strip().lower() == "all":
         states = US_STATES
-    elif states_raw:
-        states = [s.strip() for s in str(states_raw).split(",")]
+    elif raw:
+        states = [s.strip() for s in str(raw).split(",")]
     else:
-        states = []
-
-    years = range(startyear, endyear + 1) if startyear and endyear else []
-
-    urls: list[str] = []
-    for state in (states or [""]):
-        for year in (years or [0]):
-            for naics in (naics_values or [0]):
+        states = [""]
+    urls = []
+    for state in states:
+        for year in years:
+            for n in naics:
                 try:
-                    urls.append(template.format(naics=naics, year=year, state=state))
+                    urls.append(template.format(naics=n, year=year, state=state))
                 except KeyError:
                     pass
     return urls
 
 
-def fetch_csv(url: str) -> pd.DataFrame:
-    """Download a CSV from *url* and return a DataFrame."""
-    resp = requests.get(url, timeout=60)
+def fetch_csv(url):
+    resp = requests.get(url, timeout=120)
     resp.raise_for_status()
     return pd.read_csv(StringIO(resp.text))
 
 
+def load_gdc_data(param):
+    """Google Data Commons pull when features/targets carry `dcid`. Returns (features_df, targets_df)."""
+    has_f = hasattr(getattr(param, "features", None), "dcid")
+    has_t = hasattr(getattr(param, "targets", None), "dcid")
+    if not (has_f or has_t):
+        return None, None
+    try:
+        from datacommons_client import DataCommonsClient
+    except ImportError as exc:
+        raise ImportError("pip install datacommons-client to use dcid parameters") from exc
+    client = DataCommonsClient(api_key=require_env("DATACOMMONS_API_KEY"))
+
+    def pull(section):
+        dcids = section.dcid if isinstance(section.dcid, list) else [section.dcid]
+        variables = getattr(section, "variables", ["Count_Person"])
+        variables = variables if isinstance(variables, list) else [variables]
+        year = getattr(section, "year", "LATEST")
+        return client.observations_dataframe(
+            variable_dcids=variables, date=str(year), entity_dcids=dcids
+        )
+
+    features_df = targets_df = None
+    if has_f:
+        obs = pull(param.features)
+        if obs is not None and not obs.empty:
+            obs["entity"] = obs["entity"].astype(str).str.replace("geoId/", "", regex=False)
+            features_df = obs.pivot_table(index="entity", columns="variable", values="value", aggfunc="median")
+            features_df.index.name = _common_column(param)
+            features_df = features_df.reset_index()
+            print(f"  [OK] GDC features: {features_df.shape}")
+    if has_t:
+        obs = pull(param.targets)
+        if obs is not None and not obs.empty:
+            col = getattr(param.targets, "common", "Fips")
+            obs[col] = (obs["entity"].astype(str)
+                        .str.replace("zip/", "", regex=False)
+                        .str.replace("geoId/", "", regex=False)
+                        .str.replace("postalCode/", "", regex=False))
+            agg = obs.groupby(col)["value"].sum().reset_index().rename(columns={"value": "Target"})
+            agg["Target"] = (agg["Target"] > 0).astype(int)
+            targets_df = agg[[col, "Target"]]
+            print(f"  [OK] GDC targets: {targets_df.shape}")
+    return features_df, targets_df
+
+
 def load_data(param):
-    """
-    Fetch feature + target data described by *param* and return
-    (X_train, X_test, y_train, y_test, feature_names).
-    """
-    from sklearn.model_selection import train_test_split
+    """Fetch and merge features + targets. Returns (X, y) with numeric X."""
+    features_df, target_df = load_gdc_data(param)
 
-    # --- Features -----------------------------------------------------------
-    feature_urls = _build_feature_urls(param)
-    if not feature_urls:
-        raise ValueError("No feature URLs could be constructed from parameters.")
+    if features_df is None:
+        urls = build_feature_urls(param)
+        if not urls:
+            raise ValueError("No feature URLs could be constructed from parameters.")
+        frames = []
+        for url in urls:
+            try:
+                frames.append(fetch_csv(url))
+                print(f"  [OK] Loaded features: {url}")
+            except Exception as exc:
+                print(f"  [FAIL] {url}: {exc}")
+        if not frames:
+            raise FileNotFoundError("Could not load any feature files.")
+        features_df = pd.concat(frames, ignore_index=True)
 
-    feature_dfs = []
-    for url in feature_urls:
-        try:
-            df = fetch_csv(url)
-            feature_dfs.append(df)
-            print(f"  [OK] Loaded features: {url}")
-        except Exception as exc:
-            print(f"  [FAIL] Failed to load features {url}: {exc}")
+    inline_target = getattr(param.features, "target_column", None)
+    target_path = getattr(getattr(param, "targets", None), "path", None)
 
-    if not feature_dfs:
-        raise FileNotFoundError("Could not load any feature files.")
+    if target_df is None and (inline_target or not target_path):
+        col = inline_target if inline_target in features_df.columns else "y"
+        if col not in features_df.columns:
+            raise ValueError(f"Target column '{inline_target}' not in features and no targets.path given.")
+        return _numeric(features_df.drop(columns=[col])), features_df[col]
 
-    features_df = pd.concat(feature_dfs, ignore_index=True)
+    if target_df is None:
+        target_df = fetch_csv(target_path)
+        print(f"  [OK] Loaded targets: {target_path}")
 
-    # --- Inline target (e.g. blinks) ----------------------------------------
-    has_inline_target = hasattr(param.features, "target_column")
-    if has_inline_target:
-        target_column = param.features.target_column
-        if target_column not in features_df.columns:
-            # Fall back to 'y'
-            if "y" in features_df.columns:
-                target_column = "y"
-            else:
-                raise ValueError(
-                    f"Target column '{target_column}' not in features DataFrame."
-                )
-        X = features_df.drop(columns=[target_column])
-        y = features_df[target_column]
-    else:
-        # --- External targets -----------------------------------------------
-        target_url = param.targets.path
-        target_df = fetch_csv(target_url)
-        print(f"  [OK] Loaded targets: {target_url}")
+    target_col = next((c for c in ("Target", "target", "y") if c in target_df.columns), None)
+    if target_col is None:
+        raise ValueError("Cannot find target column (Target/target/y) in targets data.")
 
-        # Identify target column
-        if "Target" in target_df.columns:
-            target_column = "Target"
-        elif "target" in target_df.columns:
-            target_column = "target"
-        elif "y" in target_df.columns:
-            target_column = "y"
-        else:
-            raise ValueError("Cannot find target column (Target/target/y) in targets CSV.")
+    common = _common_column(param)
+    f_cols = {c.lower(): c for c in features_df.columns}
+    t_cols = {c.lower(): c for c in target_df.columns}
+    f_key, t_key = f_cols.get(common.lower()), t_cols.get(common.lower())
+    if f_key is None or t_key is None:
+        raise ValueError(f"Common column '{common}' must exist in both features and targets.")
+    features_df[f_key] = features_df[f_key].astype(str)
+    target_df[t_key] = target_df[t_key].astype(str)
 
-        # Merge on common column
-        common_col = _get_common_join_column(param)
-        # Find the actual column name (case-insensitive)
-        feat_cols = {c.lower(): c for c in features_df.columns}
-        tgt_cols = {c.lower(): c for c in target_df.columns}
-        common_feat = feat_cols.get(common_col.lower(), common_col)
-        common_tgt = tgt_cols.get(common_col.lower(), common_col)
-
-        if common_feat not in features_df.columns:
-            raise ValueError(f"Common column '{common_feat}' not found in features data.")
-        if common_tgt not in target_df.columns:
-            raise ValueError(f"Common column '{common_tgt}' not found in targets data.")
-
-        merged = features_df.merge(
-            target_df[[common_tgt, target_column]],
-            left_on=common_feat,
-            right_on=common_tgt,
-            how="inner",
-        )
-        if merged.empty:
-            raise ValueError("Merge produced 0 rows – check common column values.")
-
-        drop_cols = [common_feat, target_column]
-        if common_tgt != common_feat and common_tgt in merged.columns:
-            drop_cols.append(common_tgt)
-        X = merged.drop(columns=drop_cols, errors="ignore")
-        y = merged[target_column]
-
-    # Drop non-numeric columns
-    non_numeric = X.select_dtypes(exclude=["number"]).columns.tolist()
-    if non_numeric:
-        print(f"  [WARN] Dropping non-numeric columns: {non_numeric}")
-        X = X.select_dtypes(include=["number"])
-
-    feature_names = list(X.columns)
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
-    print(f"  Train: {X_train.shape[0]} rows  |  Test: {X_test.shape[0]} rows")
-    return X_train, X_test, y_train, y_test, feature_names
+    merged = features_df.merge(target_df[[t_key, target_col]], left_on=f_key, right_on=t_key, how="inner")
+    if merged.empty:
+        raise ValueError("Merge produced 0 rows. Check the common column values.")
+    drop = {f_key, t_key, target_col}
+    return _numeric(merged.drop(columns=[c for c in drop if c in merged.columns])), merged[target_col]
 
 
-# ---------------------------------------------------------------------------
-# Model training
-# ---------------------------------------------------------------------------
-
-MODEL_ALIASES = {
-    "lr": "LogisticRegression",
-    "logisticregression": "LogisticRegression",
-    "rfc": "RandomForest",
-    "rbf": "RandomForest",        # alias used by the project
-    "randomforest": "RandomForest",
-    "svm": "SVM",
-    "mlp": "MLP",
-    "xgboost": "XGBoost",
-}
-
-
-def _get_model_instance(name: str):
-    """Return an sklearn-compatible model instance for *name*."""
-    from sklearn.ensemble import RandomForestClassifier
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.neural_network import MLPClassifier
-    from sklearn.svm import SVC
-
-    canon = MODEL_ALIASES.get(name.lower())
-    if canon is None:
-        raise ValueError(f"Unknown model '{name}'. Choose from: {list(set(MODEL_ALIASES.values()))}")
-
-    if canon == "LogisticRegression":
-        return canon, LogisticRegression(max_iter=10000)
-    if canon == "SVM":
-        return canon, SVC(probability=True)
-    if canon == "MLP":
-        return canon, MLPClassifier(
-            hidden_layer_sizes=(64, 32),
-            activation="relu",
-            solver="adam",
-            max_iter=1000,
-            random_state=42,
-        )
-    if canon == "RandomForest":
-        return canon, RandomForestClassifier(
-            n_estimators=200, criterion="gini", random_state=42
-        )
-    if canon == "XGBoost":
-        from xgboost import XGBClassifier
-        return canon, XGBClassifier(
-            random_state=42,
-            eval_metric="logloss",
-            use_label_encoder=False,
-        )
-    raise ValueError(f"Unhandled model: {canon}")
-
-
-def train_and_evaluate(model, X_train, y_train, X_test, y_test):
-    """Train *model*, return metrics dict."""
-    import numpy as np
-    from sklearn.impute import SimpleImputer
-    from sklearn.metrics import (
-        accuracy_score,
-        classification_report,
-        roc_auc_score,
-        roc_curve,
-    )
-
-    imputer = SimpleImputer(strategy="mean")
-    X_train_imp = imputer.fit_transform(X_train)
-    X_test_imp = imputer.transform(X_test)
-
-    start = time.time()
-    model.fit(X_train_imp, y_train)
-    y_pred = model.predict(X_test_imp)
-    duration = time.time() - start
-
-    accuracy = accuracy_score(y_test, y_pred)
-
-    # ROC-AUC (needs predict_proba)
-    roc_auc = None
-    if hasattr(model, "predict_proba"):
-        try:
-            y_prob = model.predict_proba(X_test_imp)[:, 1]
-            roc_auc = roc_auc_score(y_test, y_prob)
-        except Exception:
-            pass
-
-    report_dict = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
-    report_text = classification_report(y_test, y_pred, zero_division=0)
-
-    return {
-        "accuracy": round(accuracy * 100, 2),
-        "roc_auc": round(roc_auc * 100, 2) if roc_auc is not None else None,
-        "duration_seconds": round(duration, 2),
-        "classification_report": report_dict,
-        "classification_report_text": report_text,
-    }
+def _numeric(X):
+    dropped = X.select_dtypes(exclude=["number"]).columns.tolist()
+    if dropped:
+        print(f"  [WARN] Dropping non-numeric columns: {dropped}")
+    return X.select_dtypes(include=["number"])
 
 
 def apply_smote(X_train, y_train):
-    """Apply SMOTE oversampling; returns resampled X, y."""
+    """SMOTE oversampling. Keeps every column; caps k_neighbors for tiny minorities."""
     from imblearn.over_sampling import SMOTE
 
-    # Impute in pandas so all-NaN columns are kept (SimpleImputer drops them,
-    # which made the resampled array narrower than X_train.columns).
+    counts = pd.Series(y_train).value_counts()
+    if len(counts) < 2 or counts.min() < 2:
+        print("  [WARN] SMOTE needs two classes with at least 2 samples each; skipping.")
+        return None, None
     X_imp = X_train.fillna(X_train.mean()).fillna(0)
-    # SMOTE needs k_neighbors < minority count; small states have very few rows.
-    minority = int(y_train.value_counts().min())
-    if minority < 2:
-        print("   [WARN] Minority class has <2 samples, skipping SMOTE.")
-        return X_train, y_train
-    sm = SMOTE(random_state=42, k_neighbors=min(5, minority - 1))
+    sm = SMOTE(random_state=RANDOM_STATE, k_neighbors=min(5, int(counts.min()) - 1))
     return sm.fit_resample(X_imp, y_train)
 
 
 # ---------------------------------------------------------------------------
-# Results output
+# Random Bits Forest (external binary, Linux only)
 # ---------------------------------------------------------------------------
 
-def save_results(results: list[dict], output_dir: str):
-    """Write a summary CSV to *output_dir*."""
-    os.makedirs(output_dir, exist_ok=True)
-    summary_path = os.path.join(output_dir, "model_results_summary.csv")
-    with open(summary_path, "w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=["model", "accuracy", "roc_auc", "duration_seconds"])
-        writer.writeheader()
-        for r in results:
-            writer.writerow({
-                "model": r["model"],
-                "accuracy": r["accuracy"],
-                "roc_auc": r["roc_auc"],
-                "duration_seconds": r["duration_seconds"],
-            })
-    print(f"\n[FILE] Summary saved to {summary_path}")
+from sklearn.base import BaseEstimator, ClassifierMixin  # noqa: E402
+from sklearn.preprocessing import LabelEncoder  # noqa: E402
 
-    # Also save full JSON report
-    json_path = os.path.join(output_dir, "model_results.json")
-    with open(json_path, "w", encoding="utf-8") as fh:
-        json.dump(results, fh, indent=2, default=str)
-    print(f"[FILE] Full report saved to {json_path}")
+
+class RandomBitsForest(BaseEstimator, ClassifierMixin):
+    """scikit-learn wrapper for the RBF binary (https://sourceforge.net/projects/random-bits-forest/)."""
+
+    def __init__(self, number_of_trees=200, bin_path=None):
+        self.number_of_trees = number_of_trees
+        self.bin_path = bin_path
+
+    def fit(self, X, y):
+        if platform.system() != "Linux":
+            raise RuntimeError("The Random Bits Forest binary runs on Linux only (Colab, Docker, Cloud Run).")
+        self._le = LabelEncoder()
+        self._y = self._le.fit_transform(np.asarray(to_cpu(y)).ravel()).astype(float)
+        if len(self._le.classes_) != 2:
+            raise ValueError("RandomBitsForest supports binary targets only.")
+        self._X = np.asarray(to_cpu(X), dtype=float)
+        self.n_features_in_ = self._X.shape[1]
+        return self
+
+    def predict_proba(self, X):
+        X = np.asarray(to_cpu(X), dtype=float)
+        binary = self._ensure_binary()
+        work = tempfile.mkdtemp(prefix="rbf_")
+        try:
+            paths = {k: os.path.join(work, f"{k}.csv") for k in ("trainx", "trainy", "testx", "testYhat")}
+            pd.DataFrame(self._X).to_csv(paths["trainx"], header=False, index=False)
+            pd.DataFrame(self._y).to_csv(paths["trainy"], header=False, index=False)
+            pd.DataFrame(X).to_csv(paths["testx"], header=False, index=False)
+            cmd = [binary, "-n", str(self.number_of_trees), paths["trainx"], paths["trainy"], paths["testx"], paths["testYhat"]]
+            proc = subprocess.run(cmd, cwd=work, capture_output=True, text=True)
+            if proc.returncode != 0:
+                raise RuntimeError(f"RBF failed ({proc.returncode}): {proc.stderr[:500]}")
+            p1 = np.clip(pd.read_csv(paths["testYhat"], header=None).iloc[:, 0].to_numpy(float), 0, 1)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        return np.column_stack([1 - p1, p1])
+
+    def predict(self, X):
+        return self._le.inverse_transform((self.predict_proba(X)[:, 1] >= 0.5).astype(int))
+
+    def _ensure_binary(self):
+        path = self.bin_path or os.path.join(HERE, "models", "random-bits-forest", "rbf", "rbf")
+        if os.path.exists(path) and os.access(path, os.X_OK):
+            return path
+        target = os.path.dirname(path)
+        os.makedirs(target, exist_ok=True)
+        url = os.environ.get("RBF_BINARY_URL", RBF_BINARY_URL)
+        print(f"  [RBF] downloading binary from {url}")
+        with urlopen(Request(url, headers={"User-Agent": "realitystream"}), timeout=120) as resp:
+            data = resp.read()
+        tmp_zip = os.path.join(target, f"rbf_{uuid.uuid4().hex}.zip")
+        with open(tmp_zip, "wb") as fh:
+            fh.write(data)
+        with zipfile.ZipFile(tmp_zip) as zf:
+            zf.extractall(target)
+        os.remove(tmp_zip)
+        found = next((os.path.join(r, "rbf") for r, _, files in os.walk(target) if "rbf" in files), None)
+        if found is None:
+            raise FileNotFoundError("Downloaded zip did not contain an 'rbf' executable.")
+        if os.path.abspath(found) != os.path.abspath(path):
+            shutil.copy2(found, path)
+        os.chmod(path, 0o755)
+        return path
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Models
 # ---------------------------------------------------------------------------
 
-def run_pipeline(yaml_path: str) -> list[dict]:
-    """
-    End-to-end pipeline: load params → fetch data → train models → return results.
-    """
-    print("=" * 60)
-    print("  RealityStream ML Pipeline (Local / Cloud Run)")
-    print("=" * 60)
+def make_model(key, random_state=RANDOM_STATE):
+    """Estimator for a canonical model key; cuML classes when the GPU path is on."""
+    gpu = gpu_enabled()
+    if key == "rfc":
+        if gpu:
+            from cuml.ensemble import RandomForestClassifier
+            return RandomForestClassifier(n_estimators=100, max_depth=8, random_state=random_state, n_streams=1)
+        from sklearn.ensemble import RandomForestClassifier
+        return RandomForestClassifier(n_estimators=100, max_depth=8, random_state=random_state, n_jobs=-1)
+    if key == "lr":
+        if gpu:
+            from cuml.linear_model import LogisticRegression
+            return LogisticRegression(max_iter=1000, penalty="l2")
+        from sklearn.linear_model import LogisticRegression
+        return LogisticRegression(max_iter=1000, penalty="l2")
+    if key == "svm":
+        if gpu:
+            from cuml.svm import SVC
+            return SVC(probability=True, kernel="rbf", C=1.0)
+        from sklearn.svm import SVC
+        return SVC(probability=True, kernel="rbf", C=1.0, random_state=random_state)
+    if key == "mlp":
+        from sklearn.neural_network import MLPClassifier
+        return MLPClassifier(random_state=random_state)
+    if key == "xgboost":
+        from xgboost import XGBClassifier
+        return XGBClassifier(tree_method="hist", device="cuda" if gpu else "cpu",
+                             eval_metric="logloss", random_state=random_state, n_jobs=-1)
+    if key == "rbf":
+        return RandomBitsForest()
+    raise ValueError(f"Unknown model key: {key}")
 
-    # 1. Load parameters
-    params_path = os.path.abspath(yaml_path)
-    if not os.path.exists(params_path):
-        print(f"[ERROR] parameters file not found: {params_path}")
-        sys.exit(1)
 
-    params = load_parameters(params_path)
-    param = DictToObject(OrderedDict(params))
-    print(f"\n[PARAMS] Parameters: {params_path}")
-    print(f"   Models: {params.get('models', [])}")
-    print(f"   Folder: {params.get('folder', 'N/A')}")
+def _param_grid(key, n_iter, rng):
+    if key == "xgboost":
+        return {
+            "n_estimators": rng.integers(50, 150, n_iter).tolist(),
+            "learning_rate": rng.uniform(0.01, 0.2, n_iter).tolist(),
+            "max_depth": rng.integers(3, 8, n_iter).tolist(),
+            "subsample": rng.uniform(0.6, 1.0, n_iter).tolist(),
+            "colsample_bytree": rng.uniform(0.6, 1.0, n_iter).tolist(),
+        }
+    if key == "mlp":
+        return {
+            "hidden_layer_sizes": [(50,), (100,), (50, 50)],
+            "activation": ["relu", "tanh"],
+            "solver": ["adam", "sgd"],
+            "alpha": np.logspace(-4, -2, n_iter).tolist(),
+            "learning_rate_init": rng.uniform(0.0005, 0.01, n_iter).tolist(),
+            "max_iter": [300, 500],
+        }
+    return None
 
-    # 2. Fetch data
-    print("\n[DATA] Loading data...")
-    X_train, X_test, y_train, y_test, feature_names = load_data(param)
 
-    # 3. Determine if SMOTE is needed (class imbalance)
-    unique_counts = y_train.value_counts()
-    use_smote = False
-    if len(unique_counts) == 2:
-        ratio = unique_counts.min() / unique_counts.max()
-        if ratio < 0.4:
-            use_smote = True
-            print(f"\n[SMOTE] Class imbalance detected (ratio={ratio:.2f}), applying SMOTE...")
-            X_train, y_train = apply_smote(X_train, y_train)
-            print(f"   After SMOTE: {len(X_train)} training samples")
+def train_models(X_train, y_train, X_test, y_test, keys, random_state=RANDOM_STATE, n_iter=20):
+    """Train each requested model; return a list of result dicts (same fields as the colab)."""
+    from sklearn.metrics import accuracy_score, classification_report, roc_auc_score
+    from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold
 
-    # 4. Train models
-    model_names = params.get("models", ["RFC"])
+    X_train, X_test = X_train.fillna(0), X_test.fillna(0)
+    y_train_np, y_test_np = np.asarray(y_train).ravel(), np.asarray(y_test).ravel()
+    class_counts = pd.Series(y_train_np).value_counts()
+    can_search = len(class_counts) > 1 and class_counts.min() >= 5
+    rng = np.random.default_rng(random_state)
+    gpu = gpu_enabled()
     results = []
 
-    for name in model_names:
-        print(f"\n{'-' * 50}")
+    for key in keys:
         try:
-            canon_name, model = _get_model_instance(name)
-        except ValueError as exc:
-            print(f"[WARN] Skipping {name}: {exc}")
+            model = make_model(key, random_state)
+        except Exception as exc:
+            print(f"  [WARN] Skipping {key}: {exc}")
             continue
+        print(f"\n[MODEL] Training {MODEL_TITLES[key]} ({key})...")
+        start = time.time()
+        try:
+            grid = _param_grid(key, n_iter, rng)
+            if grid and can_search:
+                search = RandomizedSearchCV(
+                    model, param_distributions=grid, n_iter=n_iter,
+                    cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=random_state),
+                    scoring="accuracy", n_jobs=-1, random_state=random_state,
+                )
+                search.fit(X_train, y_train_np)
+                model = search.best_estimator_
+                Xte = X_test
+            elif gpu and key in ("rfc", "lr", "svm"):
+                import cudf
+                import cupy as cp
+                model.fit(cudf.DataFrame.from_pandas(X_train), cp.asarray(y_train_np))
+                Xte = cudf.DataFrame.from_pandas(X_test)
+            else:
+                model.fit(X_train, y_train_np)
+                Xte = X_test
+            y_pred = np.asarray(to_cpu(model.predict(Xte))).ravel()
+            y_prob = np.asarray(to_cpu(model.predict_proba(Xte))) if hasattr(model, "predict_proba") else None
+        except Exception as exc:
+            print(f"  [WARN] {key} failed: {exc}")
+            continue
+        elapsed = time.time() - start
 
-        print(f"[MODEL] Training {canon_name} ({name})...")
-        metrics = train_and_evaluate(model, X_train, y_train, X_test, y_test)
-        metrics["model"] = canon_name
-
-        print(f"   Accuracy : {metrics['accuracy']}%")
-        if metrics["roc_auc"] is not None:
-            print(f"   ROC-AUC  : {metrics['roc_auc']}%")
-        print(f"   Time     : {metrics['duration_seconds']}s")
-        print(f"\n{metrics['classification_report_text']}")
-
-        results.append(metrics)
-
-    # 5. Save output
-    folder_name = params.get("folder", "default")
-    output_dir = os.path.join("output", folder_name)
-    save_results(results, output_dir)
-
-    print("\n" + "=" * 60)
-    print("  [DONE] Pipeline complete!")
-    print("=" * 60)
+        report = classification_report(y_test_np, y_pred, output_dict=True, zero_division=0)
+        two_classes = len(np.unique(y_test_np)) > 1
+        roc = roc_auc_score(y_test_np, y_prob[:, 1]) if (y_prob is not None and two_classes) else 0.0
+        pos = report.get("1", {})
+        gmean = (report["0"]["recall"] * report["1"]["recall"]) ** 0.5 if ("0" in report and "1" in report) else 0.0
+        result = {
+            "model_type": key,
+            "best_model": model,
+            "accuracy": round(accuracy_score(y_test_np, y_pred), 4),
+            "roc_auc": round(roc, 4),
+            "gmean": round(gmean, 4),
+            "precision": round(pos.get("precision", 0.0), 4),
+            "recall": round(pos.get("recall", 0.0), 4),
+            "f1_score": round(pos.get("f1-score", 0.0), 4),
+            "time": round(elapsed, 2),
+            "classification_report": report,
+        }
+        print(f"  Accuracy {result['accuracy']}  ROC-AUC {result['roc_auc']}  F1 {result['f1_score']}  "
+              f"G-Mean {result['gmean']}  ({result['time']}s)")
+        results.append(result)
     return results
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Run RealityStream ML models using a parameters.yaml file",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=textwrap.dedent("""\
-            Examples:
-              python run_models.py parameters/parameters.yaml
-              python run_models.py parameters/parameters-blinks.yaml
-              python run_models.py path/to/custom-params.yaml
+# ---------------------------------------------------------------------------
+# Feature importance
+# ---------------------------------------------------------------------------
 
-            Supported models (specify in YAML 'models' key):
-              LR         – Logistic Regression
-              RFC / RBF  – Random Forest Classifier
-              SVM        – Support Vector Machine
-              MLP        – Multi-Layer Perceptron
-              XGBoost    – XGBoost Classifier
-        """),
-    )
-    parser.add_argument(
-        "yaml",
-        help="Path to parameters.yaml (relative or absolute)",
-    )
+_NAICS6 = None
+
+
+def naics6_name(feature):
+    """Emp-454310 -> '454310-Fuel Dealers'; other names unchanged. Mapping is loaded once, failsafe."""
+    global _NAICS6
+    match = re.match(r"Emp-(\d{6})$", str(feature))
+    if not match:
+        return feature
+    if _NAICS6 is None:
+        try:
+            df = pd.read_excel(NAICS6_NAMES_URL, dtype=str, skiprows=1, usecols=[0, 1])
+            df.columns = ["code", "name"]
+            _NAICS6 = df.set_index("code")["name"].to_dict()
+        except Exception as exc:
+            print(f"  [WARN] NAICS6 names unavailable ({exc}); keeping raw codes.")
+            _NAICS6 = {}
+    return f"{match.group(1)}-{_NAICS6.get(match.group(1), 'Unknown')}"
+
+
+def feature_importances(results, feature_names, map_naics=False):
+    """{model_key: DataFrame(Feature, Importance)} for models that expose importances."""
+    out = {}
+    for r in results:
+        key, model = r["model_type"], r["best_model"]
+        if key == "xgboost":
+            scores = model.get_booster().get_score(importance_type="weight")
+            values = [scores.get(f, scores.get(f"f{i}", 0)) for i, f in enumerate(feature_names)]
+        elif key == "rfc" and hasattr(model, "feature_importances_"):
+            values = np.asarray(to_cpu(model.feature_importances_)).ravel()
+        elif key == "lr" and hasattr(model, "coef_"):
+            values = np.abs(np.asarray(to_cpu(model.coef_))).ravel()
+        else:
+            continue
+        df = pd.DataFrame({"Feature": list(feature_names), "Importance": values})
+        if map_naics:
+            df["Feature"] = df["Feature"].map(naics6_name)
+        out[key] = df.sort_values("Importance", ascending=False).reset_index(drop=True)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Report folder and upload
+# ---------------------------------------------------------------------------
+
+REPORT_COLUMNS = ["Model", "Accuracy", "ROC_AUC", "F1_Score", "Precision", "Recall", "GMean", "Training_Time_Seconds"]
+
+
+def results_table(results):
+    return pd.DataFrame([{
+        "Model": r["model_type"], "Accuracy": r["accuracy"], "ROC_AUC": r["roc_auc"],
+        "F1_Score": r["f1_score"], "Precision": r["precision"], "Recall": r["recall"],
+        "GMean": r["gmean"], "Training_Time_Seconds": r["time"],
+    } for r in results], columns=REPORT_COLUMNS)
+
+
+def setup_report_folder(report_dir):
+    """Fresh report folder with index.html (localsite template), README.md and model-options.csv."""
+    if os.path.isdir(report_dir):
+        shutil.rmtree(report_dir)
+    os.makedirs(report_dir)
+    index = os.path.join(report_dir, "index.html")
+    try:
+        resp = requests.get(REPORT_TEMPLATE_URL, timeout=60)
+        resp.raise_for_status()
+        with open(index, "w", encoding="utf-8") as fh:
+            fh.write(resp.text)
+    except Exception as exc:
+        print(f"  [WARN] Could not download report template: {exc}")
+    with open(os.path.join(report_dir, "README.md"), "w", encoding="utf-8") as fh:
+        fh.write("# Run Models Report\n\nThis folder contains generated reports from model executions.")
+    with open(os.path.join(report_dir, "model-options.csv"), "w", newline="", encoding="utf-8") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(["model_name"])
+        for name in ("LR", "RFC", "RBF", "SVM", "MLP", "XGBoost"):
+            writer.writerow([name])
+
+
+def write_reports(report_dir, params, results_no_smote, results_smote, importances):
+    with open(os.path.join(report_dir, "parameters.yaml"), "w", encoding="utf-8") as fh:
+        yaml.safe_dump(params, fh, sort_keys=False)
+    results_table(results_no_smote).to_csv(os.path.join(report_dir, "model_performance_report_no_smote.csv"), index=False)
+    if results_smote:
+        results_table(results_smote).to_csv(os.path.join(report_dir, "model_performance_report_smote.csv"), index=False)
+    if "xgboost" in importances:
+        importances["xgboost"].to_csv(os.path.join(report_dir, "feature_importance_xgboost.csv"), index=False)
+    print(f"\n[REPORT] {len(os.listdir(report_dir))} files in {os.path.abspath(report_dir)}")
+
+
+def upload_reports(report_dir, repo=REPORTS_REPO, branch="main", year=None, subfolder=None, token=None):
+    """Commit every file in report_dir to {year}/{subfolder}/ in the reports repo. Returns that path."""
+    token = token or require_env("GITHUB_REPORTS_TOKEN")
+    year = year or datetime.now().strftime("%Y")
+    subfolder = subfolder or datetime.now().strftime("run-%Y-%m-%dT%H-%M-%S")
+    remote_dir = f"{year}/{subfolder}"
+    api = f"https://api.github.com/repos/{repo}"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+
+    def call(method, url, **kw):
+        resp = requests.request(method, url, headers=headers, timeout=60, **kw)
+        resp.raise_for_status()
+        return resp.json()
+
+    head_sha = call("GET", f"{api}/git/refs/heads/{branch}")["object"]["sha"]
+    base_tree = call("GET", f"{api}/git/commits/{head_sha}")["tree"]["sha"]
+    tree = []
+    for path in sorted(Path(report_dir).glob("**/*")):
+        if path.is_file():
+            with open(path, "rb") as fh:
+                content = fh.read().decode("utf-8", errors="replace")
+            tree.append({"path": f"{remote_dir}/{path.relative_to(report_dir).as_posix()}",
+                         "mode": "100644", "type": "blob", "content": content})
+    new_tree = call("POST", f"{api}/git/trees", json={"base_tree": base_tree, "tree": tree})["sha"]
+    commit = call("POST", f"{api}/git/commits",
+                  json={"message": f"Run Models report {subfolder}", "tree": new_tree, "parents": [head_sha]})["sha"]
+    call("PATCH", f"{api}/git/refs/heads/{branch}", json={"sha": commit})
+    print(f"[UPLOAD] {len(tree)} files -> https://github.com/{repo}/tree/{branch}/{remote_dir}")
+    return remote_dir
+
+
+# ---------------------------------------------------------------------------
+# Pipeline
+# ---------------------------------------------------------------------------
+
+def summarize(results):
+    """JSON-safe view of a results list (drops the fitted estimators)."""
+    return [{k: v for k, v in r.items() if k != "best_model"} for r in results]
+
+
+def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=20):
+    """Load params -> fetch data -> train (plain and SMOTE) -> write report folder -> optional upload."""
+    from sklearn.model_selection import train_test_split
+
+    print("=" * 60 + "\n  RealityStream Run Models\n" + "=" * 60)
+    params = load_parameters(yaml_path)
+    param = DictToObject(OrderedDict(params))
+    keys = params["models"] or ["rfc"]
+    print(f"[PARAMS] {yaml_path}\n   folder: {params.get('folder', 'N/A')}   models: {keys}   gpu: {gpu_enabled()}")
+
+    print("\n[DATA] Loading...")
+    X, y = load_data(param)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=RANDOM_STATE)
+    print(f"  Train: {len(X_train)} rows   Test: {len(X_test)} rows   Features: {X.shape[1]}")
+
+    print("\n[TRAIN] Without SMOTE")
+    results_no_smote = train_models(X_train, y_train, X_test, y_test, keys, n_iter=n_iter)
+
+    print("\n[TRAIN] With SMOTE")
+    X_sm, y_sm = apply_smote(X_train, y_train)
+    results_smote = train_models(X_sm, y_sm, X_test, y_test, keys, n_iter=n_iter) if X_sm is not None else []
+
+    map_naics = "naics" in str(getattr(param.features, "path", ""))
+    importances = feature_importances(results_smote or results_no_smote, list(X.columns), map_naics)
+
+    setup_report_folder(report_dir)
+    write_reports(report_dir, params, results_no_smote, results_smote, importances)
+
+    uploaded = upload_reports(report_dir) if upload else None
+    print("\n[DONE]")
+    return {
+        "folder": params.get("folder"),
+        "report_dir": os.path.abspath(report_dir),
+        "no_smote": summarize(results_no_smote),
+        "smote": summarize(results_smote),
+        "feature_importance": {k: v.head(20).to_dict(orient="records") for k, v in importances.items()},
+        "uploaded_to": uploaded,
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Run RealityStream models from a parameters.yaml",
+                                     epilog="Model keys: lr, rfc, rbf, svm, mlp, xgboost")
+    parser.add_argument("yaml", nargs="?", default=os.environ.get("PARAMETERS_YAML_PATH"),
+                        help="parameters.yaml path or URL (default: $PARAMETERS_YAML_PATH, else the first "
+                             "entry of parameters/parameter-paths.csv, as in the colab)")
+    parser.add_argument("--report-dir", default="report", help="output folder (default: report)")
+    parser.add_argument("--upload", action="store_true", help="push the report folder to modelearth/reports")
+    parser.add_argument("--n-iter", type=int, default=20, help="RandomizedSearchCV iterations for xgboost/mlp")
     args = parser.parse_args()
-    run_pipeline(args.yaml)
+    try:
+        summary = run_pipeline(args.yaml, args.report_dir, args.upload, args.n_iter)
+    except MissingKey as exc:
+        print(f"\n[KEY] {exc}")
+        sys.exit(2)
+    with open(os.path.join(args.report_dir, "run_summary.json"), "w", encoding="utf-8") as fh:
+        json.dump(summary, fh, indent=2, default=str)
 
 
 if __name__ == "__main__":

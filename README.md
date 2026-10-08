@@ -9,7 +9,7 @@ Our main input is currently industry features by county ID (FIPS) for exploring 
 We are also preping data for [International Trade Flow](https://model.earth/profile/trade).
 
 
-[Run-Models-bkup.ipynb](https://github.com/ModelEarth/realitystream/tree/main/models) is a backup of the [Run Models CoLab](https://colab.research.google.com/drive/1zu0WcCiIJ5X3iN1Hd1KSW4dGn0JuodB8?usp=sharing) that we run locally. We append "-bkup" to indicate it is not the primary source.
+[Run_Models.ipynb](https://github.com/ModelEarth/realitystream/tree/main/models) is a backup of the [Run Models CoLab](https://colab.research.google.com/drive/1EFGEwh6v1-oYFTcNVCBOyl_HtfEC6INd?usp=sharing). The trimmed, runnable version of that notebook is [run_models.py](run_models.py) (see "Running RealityStream Locally" below).
 
 Learn about our [cuML GPU speed enhancements - and SMOTE balancing of our classes](cuML)
 We're using [SHAP to explain our model predictions](shap)
@@ -71,21 +71,31 @@ AS y -- the povertyBinary for >= 2% in coming year, and no decline for current y
 -->
 ## Running RealityStream Locally (CLI)
 
-You can run the RealityStream model pipeline locally using the CLI.
+`run_models.py` is the colab pipeline as one importable module. It fetches features and targets from a parameters.yaml, trains the requested models twice (plain and SMOTE-balanced), and writes the same `report/` folder the colab pushes to [modelearth/reports](https://github.com/modelearth/reports).
 
-### Run with default parameters file
+    pip install -r requirements.txt
+    python run_models.py parameters/parameters.yaml
+    python run_models.py parameters/parameters-blinks.yaml --report-dir report --n-iter 20
+    python run_models.py parameters/parameters.yaml --upload      # also push report/ to modelearth/reports
 
-python run_models.py parameters/parameters.yaml
+Model keys for the YAML `models` list: `lr`, `rfc`, `rbf`, `svm`, `mlp`, `xgboost`. `rbf` is the Random Bits Forest binary, which runs on Linux only (Colab, Docker, Cloud Run); on Windows and macOS it is skipped with a warning.
 
-### Run with other parameter files
+`report/` contains `model_performance_report_no_smote.csv`, `model_performance_report_smote.csv`, `feature_importance_xgboost.csv`, `parameters.yaml`, `model-options.csv`, `README.md` and `index.html`.
 
-python run_models.py parameters/parameters-years.yaml
+### Keys
 
-### Expected Output
+Settings are read one name at a time: first from the environment, then from the env file named by `automation/paths.yaml` in the [webroot](https://model.earth/webroot). The whole file is never loaded.
 
-You should see:
+- `GITHUB_REPORTS_TOKEN` for `--upload` (GitHub token with write access to modelearth/reports)
+- `DATACOMMONS_API_KEY` for parameter files that use `dcid` (Google Data Commons)
+- `ENABLE_GPU=true` to use cuML models when RAPIDS is installed (falls back to scikit-learn otherwise)
 
-[INFO] RealityStream local runner  
-[INFO] Using parameters file: ...
+When a key is missing, the CLI and the Flask `/run` endpoint explain where to get it.
 
-This confirms the CLI is working correctly.
+### Cloud Run
+
+`app.py` wraps the pipeline as `POST /run` (body: parameters.yaml text, `?upload=1` to push the report). `deploy-cloud-run.sh cpu|gpu` deploys it; see [PLAN.md](PLAN.md).
+
+### Tests
+
+    python -m pytest tests
