@@ -17,6 +17,9 @@
 // is remembered in this browser (localStorage) until "Forget passphrase".
 //   #rsResults      results table after a run
 //   #rsEndpoints    list of API endpoints
+//   [data-rs-layout] the Settings section: an Expand / Condense switch goes at the right of its h2.
+//                   Expansive (default) stacks Features above Target with full URLs and shows the YAML; Condensed puts
+//                   them side by side and hides their URLs and the YAML. The choice is remembered per browser.
 
 (function () {
   const RS_RUN_API = 'https://realitystream-kwr4qrkopq-uc.a.run.app/';
@@ -34,18 +37,34 @@
   }
 
   const STYLE = `
+.rs-usage-when { font-weight:400; }
 .rs-usage-bar { height:10px; background:rgba(127,127,127,.2); border-radius:6px; overflow:hidden; margin:10px 0 6px; }
 .rs-usage-fill { height:100%; width:0; background:#2f6fde; transition:width .3s; }
 .rs-usage-fill.full { background:#c2410c; }
 .rs-usage-stats { display:flex; flex-wrap:wrap; gap:8px 24px; opacity:.85; }
 .rs-run-label { font-weight:600; margin:16px 0 6px; }
+.rs-run-label-note { font-weight:400; }
 .rs-smote { display:flex; flex-wrap:wrap; gap:6px 20px; }
 .rs-smote label { display:inline-flex; gap:6px; align-items:center; cursor:pointer; }
 .rs-run-actions { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-top:18px; }
 .rs-run-button { background:#2f6fde; color:#fff; border:0; border-radius:8px; padding:10px 22px; font-size:16px; cursor:pointer; }
 .rs-run-button:disabled { opacity:.6; cursor:default; }
-.rs-run-status.error { color:#c2410c; } .rs-run-status.ok { color:#15803d; }
-.dark .rs-run-status.error { color:#fb923c; } .dark .rs-run-status.ok { color:#4ade80; }
+.rs-run-button:hover:not(:disabled) { background:#2558b8; }
+/* Green and hover from localsite's .btn-success (--color-success), with its values as fallbacks */
+.rs-run-button.rs-continue-button { margin-left:auto; background:var(--color-success, #6aa442); }
+.rs-run-button.rs-continue-button:hover:not(:disabled) { background:var(--color-success-hover, #5a8d38); }
+.rs-layout-switch { margin-left:auto; display:inline-flex; border:1px solid rgba(127,127,127,.35); border-radius:8px; overflow:hidden; font-size:13px; font-weight:400; }
+.rs-layout-switch button { background:transparent; color:inherit; border:0; padding:4px 12px; cursor:pointer; font:inherit; }
+.rs-layout-switch button[aria-pressed="true"] { background:#2f6fde; color:#fff; }
+[data-rs-layout] > h2 { display:flex; align-items:center; gap:12px; }
+.rs-layout-expansive .rs-pickers { flex-direction:column; }
+.rs-layout-expansive .rs-picker { width:100%; }
+.rs-layout-expansive .rsUrlShort { display:none; }
+.rs-layout-expansive .rsUrlFull { display:inline; word-break:break-all; }
+.rs-layout-condensed .rsCardFilename + .rsCardTitle { display:none; }
+.rs-layout-condensed #paramText { display:none; }
+.rs-run-status.error { color:#c2410c; } .rs-run-status.ok { color:var(--color-success, #6aa442); }
+.dark .rs-run-status.error { color:#fb923c; } .dark .rs-run-status.ok { color:var(--color-success, #6aa442); }
 .rs-free-note { margin-top:14px; opacity:.85; }
 .rs-forget-key { background:none; border:0; padding:0; color:inherit; text-decoration:underline; cursor:pointer; font:inherit; opacity:.8; }
 .rs-key-state { opacity:.75; }
@@ -71,7 +90,7 @@
 
   function moreRunsHtml() {
     const url = (info && info.more_runs_url) || 'https://model.earth/cloud/run/#googleaccountautomation';
-    return `To run more, <a href="${url}" target="_blank" rel="noopener">add a REALITYSTREAM_API_KEY</a> for this Google Cloud project, `
+    return `<br>To run more, <a href="${url}" target="_blank" rel="noopener">add a REALITYSTREAM_API_KEY</a> for this Google Cloud project, `
       + `or <a href="${url}" target="_blank" rel="noopener">run on your own cloud account</a>.`;
   }
 
@@ -139,6 +158,14 @@
           `<tr><td><code>${escapeHtml(k)}</code></td><td class="wrap">${escapeHtml(v)}</td></tr>`).join('')
         + '</table></div>';
     }
+  }
+
+  // "Run Model" when exactly one model is checked, otherwise "Run Models"
+  function updateRunLabel() {
+    const button = document.querySelector('#rsRunControls .rs-run-button');
+    if (!button) return;
+    const count = window.RSModelSelect ? RSModelSelect.selected().length : 0;
+    button.textContent = count === 1 ? 'Run Model' : 'Run Models';
   }
 
   function setStatus(text, kind, html) {
@@ -220,11 +247,11 @@
       document.head.appendChild(style);
     }
     if ($('rsUsage')) {
-      $('rsUsage').innerHTML = '<h2>Today\'s model run time (<span class="rs-usage-day">…</span>, resets at midnight Eastern)</h2>'
+      $('rsUsage').innerHTML = '<h2>Today\'s model run time <span class="rs-usage-when">(<span class="rs-usage-day">…</span>, resets at midnight Eastern)</span></h2>'
         + '<div class="rs-usage-bar"><div class="rs-usage-fill"></div></div><div class="rs-usage-stats">Loading…</div>';
     }
     controls.innerHTML = `
-<div class="rs-run-label">SMOTE oversampling</div>
+<div class="rs-run-label">SMOTE oversampling <span class="rs-run-label-note">– Adds synthetic examples of the rarer class to balance training</span></div>
 <div class="rs-smote">
   <label><input type="radio" name="rs_smote" value="" checked> Without and with SMOTE</label>
   <label><input type="radio" name="rs_smote" value="0"> Without SMOTE</label>
@@ -258,11 +285,44 @@
     };
     placeKeyRow();
     document.addEventListener('rsModelSelectRendered', placeKeyRow);
+    document.addEventListener('rsModelsChanged', updateRunLabel);
+    updateRunLabel();
     if ($('rsResults')) {
       $('rsResults').innerHTML = '<h2>Results</h2><div class="rs-results-body"></div>';
       $('rsResults').style.display = 'none';
     }
+    initLayoutSwitch();
     refreshUsage().then(checkKey);
+  }
+
+  const LAYOUT_STORE = 'realitystreamLayout';
+
+  // Expand / Condense switch at the right of the Settings h2 ([data-rs-layout])
+  function initLayoutSwitch() {
+    const section = document.querySelector('[data-rs-layout]');
+    const heading = section && section.querySelector(':scope > h2');
+    if (!heading || heading.querySelector('.rs-layout-switch')) return;
+    let layout = 'expansive';
+    try { layout = localStorage.getItem(LAYOUT_STORE) || 'expansive'; } catch (e) {}
+    const sw = document.createElement('span');
+    sw.className = 'rs-layout-switch';
+    sw.setAttribute('role', 'group');
+    sw.setAttribute('aria-label', 'Layout');
+    sw.innerHTML = '<button type="button" data-layout="expansive">Expand</button><button type="button" data-layout="condensed">Condense</button>';
+    heading.appendChild(sw);
+    const apply = value => {
+      layout = value === 'condensed' ? 'condensed' : 'expansive';
+      section.classList.toggle('rs-layout-expansive', layout === 'expansive');
+      section.classList.toggle('rs-layout-condensed', layout === 'condensed');
+      sw.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.layout === layout ? 'true' : 'false'));
+    };
+    sw.addEventListener('click', e => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      apply(b.dataset.layout);
+      try { localStorage.setItem(LAYOUT_STORE, layout); } catch (e2) {}
+    });
+    apply(layout);
   }
 
   window.RSRunPanel = { refreshUsage, apiBase };

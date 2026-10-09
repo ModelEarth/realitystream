@@ -29,7 +29,7 @@
   let readmePromise = null;
 
   // {intro, models: [{value, label, details}], outro} as Markdown, split at the model headings.
-  // A model's details run until the next model heading, a horizontal rule, or another heading.
+  // A model's details run until the next model heading, a horizontal rule, another heading, or an HTML comment.
   function loadReadme() {
     if (!readmePromise) {
       readmePromise = fetch(README_URL)
@@ -42,7 +42,7 @@
             if (m && !done) {
               current = { value: m[1].trim(), label: m[2].trim(), lines: [] };
               models.push(current);
-            } else if (current && !done && (/^\s*-{3,}\s*$/.test(line) || /^#/.test(line))) {
+            } else if (current && !done && (/^\s*-{3,}\s*$/.test(line) || /^#/.test(line) || /^\s*<!--/.test(line))) {
               done = true;
               outro.push(line);
             } else if (done) {
@@ -156,6 +156,12 @@
       cb.checked = selected.includes(cb.value.toLowerCase());
     });
     enforceSingle();
+    announce();
+  }
+
+  // Let other scripts (run-panel.js) know the checked models may have changed
+  function announce() {
+    document.dispatchEvent(new Event('rsModelsChanged'));
   }
 
   function setSingle(on) {
@@ -196,6 +202,7 @@
           return;
         }
         syncToHash();
+        announce();
       });
     });
     syncFromState();

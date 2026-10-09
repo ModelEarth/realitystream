@@ -50,12 +50,6 @@ Runs slow (over an hour), best to avoid for now.
 - **Common Use**: Financial modeling, fraud detection, machine learning competitions.
 - **Limitations**: Complex and harder to interpret, requires tuning for optimal performance.
 
-
----
-**<button onclick="redirectToMainPage()" class="btn btn-success">Continue</button>**
-
----
-
 <!--
 # Inflow, Outflow, Predicted Results
 
@@ -82,4 +76,3 @@ Do Google search algorithms direct people toward training that results in a bett
 [Does expanding access to Starlink actually help increase tree canopy?](https://www.yahoo.com/news/elon-musk-diplomacy-woo-wing-155604090.html) In Brazil, Starlink was slated to provide internet connectivity to 19,000 rural schools, along with environmental monitoring of the Amazon. Let's explore changes to [world forest coverage over time](/data-commons/docs/conservation/).
 -->
 
-Paste the resulting yaml parameters list into the second step of the [Run Models CoLab](../input/industries).
