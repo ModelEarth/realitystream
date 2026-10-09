@@ -44,10 +44,10 @@ app = Flask(__name__)
 DAILY_RUNS_PER_USER = int(os.environ.get("DAILY_RUNS_PER_USER", "20"))
 _runs = {}  # (day, caller) -> count. Per-instance memory, exact with --max-instances 1; use Firestore if that changes.
 
-# Daily spending cap. Run time is priced at Cloud Run request-based rates for 1 vCPU + 2 GiB
-# ($0.000024 per vCPU-second + 2 x $0.0000025 per GiB-second), ignoring the free tier.
+# Daily spending cap. Run time is priced at Cloud Run request-based rates for 4 vCPU + 2 GiB
+# (4 x $0.000024 per vCPU-second + 2 x $0.0000025 per GiB-second), ignoring the free tier.
 DAILY_COST_LIMIT_USD = float(os.environ.get("DAILY_COST_LIMIT_USD", "0.20"))
-COST_PER_SECOND_USD = float(os.environ.get("COST_PER_SECOND_USD", "0.000029"))
+COST_PER_SECOND_USD = float(os.environ.get("COST_PER_SECOND_USD", "0.000101"))
 _spent = {}  # day -> estimated USD. Same per-instance caveat as _runs.
 
 ALLOWED_ORIGINS = {"http://localhost:8887", "http://127.0.0.1:8887"}

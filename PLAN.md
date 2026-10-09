@@ -54,7 +54,7 @@ So the Worker's job is to serve the pages and forward one request.
 The repo contains `models/main.py` (Flask, `POST /run` takes a YAML body and returns JSON results, `GET /parameters`, `GET /health`) and a `Procfile` that starts it with gunicorn. Without a Dockerfile, `--source .` builds with Google Cloud buildpacks (Python from `.python-version`). `cloud/run/config.yaml` already names a project (`modelearth-run-models-1`, `us-central1`) and a service. A CPU deploy is one command:
 
 ```bash
-gcloud run deploy realitystream --source . --region us-central1 --allow-unauthenticated --memory 2Gi --timeout 900
+gcloud run deploy realitystream --source . --region us-central1 --allow-unauthenticated --cpu 4 --memory 2Gi --timeout 3600 --max-instances 1
 ```
 
 ### GPU variant

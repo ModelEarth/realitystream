@@ -30,7 +30,7 @@ fi
 
 case "${1:-cpu}" in
   cpu) gcloud run deploy realitystream --source . --project "$PROJECT" --region "$REGION" --allow-unauthenticated \
-         --memory 2Gi --timeout 900 --max-instances 1 ;;
+         --cpu 4 --memory 2Gi --timeout 3600 --max-instances 1 ;;
   # GPU instances bill per instance (about $0.0004/s for L4 + 8 vCPU + 32 GiB), so the cap uses that rate
   gpu) gcloud run deploy realitystream-gpu --source . --project "$PROJECT" --region "$REGION" --allow-unauthenticated \
          --gpu 1 --gpu-type nvidia-l4 --no-gpu-zonal-redundancy \
