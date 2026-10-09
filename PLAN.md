@@ -23,7 +23,7 @@ Written 2026-10-05 against cloudroot `worker/README.md`, `cloud/run/config.yaml`
 
 ## Short answer
 
-CloudRoot's Cloudflare Worker can serve the RealityStream front end, but it cannot run the models. The ML step belongs in a Cloud Run service built from this repo's Dockerfile. The Worker proxies one API route to it.
+CloudRoot's Cloudflare Worker can serve the RealityStream front end, but it cannot run the models. The ML step belongs in a Cloud Run service built from this repo with Google Cloud buildpacks (no Dockerfile). The Worker proxies one API route to it.
 
 ```
 browser --> cloud.model.earth --+-- /realitystream/*        static files from the realitystream submodule
@@ -31,7 +31,7 @@ browser --> cloud.model.earth --+-- /realitystream/*        static files from th
                                 +-- /api/realitystream/run  Worker proxies to Cloud Run
                                                              |
                                                              v
-                                           Cloud Run service "realitystream" (Flask app.py, run_models.py)
+                                           Cloud Run service "realitystream" (Flask models/main.py, run_models.py)
                                            CPU by default, optional NVIDIA L4 for cuML
 ```
 
@@ -51,7 +51,7 @@ So the Worker's job is to serve the pages and forward one request.
 
 ## Cloud Run service from this repo
 
-The repo already contains `Dockerfile` (python:3.11-slim, gunicorn) and `app.py` (Flask, `POST /run` takes a YAML body and returns JSON results, `GET /health`). `cloud/run/config.yaml` already names a project (`modelearth-run-models-1`, `us-central1`) and a service. A CPU deploy is one command:
+The repo contains `models/main.py` (Flask, `POST /run` takes a YAML body and returns JSON results, `GET /parameters`, `GET /health`) and a `Procfile` that starts it with gunicorn. Without a Dockerfile, `--source .` builds with Google Cloud buildpacks (Python from `.python-version`). `cloud/run/config.yaml` already names a project (`modelearth-run-models-1`, `us-central1`) and a service. A CPU deploy is one command:
 
 ```bash
 gcloud run deploy realitystream --source . --region us-central1 --allow-unauthenticated --memory 2Gi --timeout 900
@@ -91,7 +91,7 @@ Any Google Cloud account with billing enabled can run the commands above; new ac
 ## Keys and settings
 
 - Backend settings come from the env file named by `automation/paths.yaml`, as `cloud/run/utils/env_paths.py` and the notebook already do. On Cloud Run the same names arrive as service env vars or Secret Manager references.
-- When a key is missing, `app.py` should return a JSON error with a `how_to_get_it` field (for example a link to the Data Commons API key page), and the page renders that text instead of a stack trace.
+- When a key is missing, `models/main.py` returns a JSON error with a `how_to_get_it` field (for example a link to the Data Commons API key page), and the page renders that text instead of a stack trace.
 - The current notebook export has a Google Data Commons API key hardcoded in the Data Commons cells. It should move to `DATACOMMONS_API_KEY` in the env file and be rotated.
 
 ## Proposed order

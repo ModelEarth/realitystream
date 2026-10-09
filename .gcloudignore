@@ -1,0 +1,14 @@
+# Files uploaded by "gcloud run deploy --source ." (buildpacks use requirements.txt and Procfile)
+#!include:.gitignore
+.git
+.gitignore
+*.ipynb
+admin/
+cuML/
+input/
+output/
+process/
+shap/
+tests/
+models/*
+!models/main.py

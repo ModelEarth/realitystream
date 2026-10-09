@@ -94,7 +94,7 @@ When a key is missing, the CLI and the Flask `/run` endpoint explain where to ge
 
 ### Cloud Run
 
-`app.py` wraps the pipeline as `POST /run` (body: parameters.yaml text, `?upload=1` to push the report). `deploy-cloud-run.sh cpu|gpu` deploys it; see [PLAN.md](PLAN.md).
+`models/main.py` wraps the pipeline as `POST /run` (body: parameters.yaml text or JSON `{"parameters": "parameters-blinks.yaml"}`, `?upload=1` to push the report), plus `GET /parameters` and `GET /health`. `deploy-cloud-run.sh cpu|gpu` deploys it without a Dockerfile: Google Cloud buildpacks read `requirements.txt`, `Procfile` and `.python-version`, and `.gcloudignore` limits the upload. See [PLAN.md](PLAN.md).
 
 ### Tests
 
