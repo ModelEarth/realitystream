@@ -1,6 +1,7 @@
 """
 RealityStream serverless API for Google Cloud Run: Flask wrapper around run_models.run_pipeline.
 
+    GET  /                     list of endpoints
     GET  /health               liveness probe
     GET  /parameters           preset YAML files in parameters/
     POST /run[?upload=1]       body = parameters.yaml text, or JSON {"parameters": "parameters-blinks.yaml"}
@@ -98,6 +99,21 @@ def throttled(caller):
 
 def preset_files():
     return sorted(f for f in os.listdir(PARAMETERS_DIR) if f.endswith((".yaml", ".yml")))
+
+
+@app.route("/", methods=["GET"])
+def index():
+    """List the endpoints, so opening the service URL in a browser shows what it offers."""
+    return jsonify({
+        "service": "realitystream",
+        "endpoints": {
+            "GET /health": "liveness probe",
+            "GET /parameters": "preset YAML files in parameters/",
+            "POST /run": 'body = parameters.yaml text, or JSON {"parameters": "parameters-blinks.yaml"}; ?upload=1 pushes the report',
+        },
+        "daily_cost_limit_usd": DAILY_COST_LIMIT_USD,
+        "source": "https://github.com/ModelEarth/realitystream/blob/main/models/main.py",
+    }), 200
 
 
 @app.route("/health", methods=["GET"])
