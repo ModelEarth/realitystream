@@ -11,6 +11,15 @@ We are also preping data for [International Trade Flow](https://model.earth/prof
 
 [Run_Models.ipynb](https://github.com/ModelEarth/realitystream/tree/main/models) is a backup of the [Run Models CoLab](https://colab.research.google.com/drive/1EFGEwh6v1-oYFTcNVCBOyl_HtfEC6INd?usp=sharing). The trimmed, runnable version of that notebook is [run_models.py](run_models.py) (see "Running RealityStream Locally" below).
 
+- [Run Models CoLab](input/industries)
+- [Random Forests for Healthy Bees](../bee-data/)
+- [Random Bits Forest for Eye Blinks](models/random-bits-forest/)
+
+The Run Models colab merges feature and target datasets in Pandas.  
+Training files can be reviewed by setting save_training=True.
+
+Select one or more [models](models/), then paste the resulting yaml in the Run Models CoLab.
+
 Learn about our [cuML GPU speed enhancements - and SMOTE balancing of our classes](cuML)
 We're using [SHAP to explain our model predictions](shap)
 

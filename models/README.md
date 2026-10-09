@@ -4,15 +4,6 @@
 Our Machine Learning (ML) models join feature and target (Y=1) data based on location IDs.  
 Scope includes: Countries, States, County FIPS, Zip Codes, and Brain Voxels (for eye blinks).
 
-- [Run Models CoLab](../input/industries)
-- [Random Forests for Healthy Bees](../../bee-data/)
-- [Random Bits Forest for Eye Blinks](random-bits-forest)
-
-The Run Modles colab merges feature and target datasets in Pandas.  
-Training files can be reviewed by setting save_training=True.
-
-Select one or more models, then paste the resulting yaml in the Run Models CoLab.
-
 ## <input type="checkbox" id="model-lr" name="model" value="lr"> Logistic Regression (lr)
 - **Type**: Linear model for binary classification (extendable to multiclass).
 - **Key Feature**: Predicts probabilities using the logistic (sigmoid) function.

@@ -6,48 +6,77 @@
 <title>RealityStream - ML Model Overview and Selection</title>
 <link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-
+<!--
+  Choose parameters, datasets and models, then run them on the RealityStream Cloud Run API.
+  Formerly cloud/run/page.html, combined with the model overview from README.md.
+  The same shared files make up the Cloud Run home page (home.html):
+  cloud/run/js/param-input.js (parameter base, features and targets, YAML),
+  realitystream/js/model-select.js (models and their details, from README.md) and
+  realitystream/js/run-panel.js (today's usage, SMOTE choice, Run button and results).
+-->
 <script type="text/javascript" src="../../localsite/js/localsite.js?showheader=true"></script>
-<!-- Shared models picker: keeps the README checkboxes in sync with #models= -->
-<script src="../js/model-select.js"></script>
-
+<link rel="stylesheet" href="../../cloud/run/css/param.css">
+<script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+<script src="../../localsite/js/showdown.min.js"></script>
+<style>
+.rs-panel { border-radius:12px; padding:18px 20px; margin:0 0 16px; background:rgba(127,127,127,.08); }
+.rs-panel h2 { font-size:18px; margin:0 0 12px; }
+.rs-label { font-weight:600; margin:16px 0 6px; }
+#parambase { padding:6px 8px; border-radius:8px; max-width:100%; }
+#paramText { border-radius:8px; padding:4px 14px; overflow-x:auto; outline:none; background:rgba(127,127,127,.1); }
+#paramText pre { margin:10px 0; font-size:13px; white-space:pre-wrap; word-break:break-word; background:transparent; }
+</style>
 <script>
-loadMarkdown("README.md", "readmeDiv", "_parent", 1, function() {
-  RSModelSelect.bind();
-});
-
+// Continue (in README.md) returns to RealityStream with the selected models in the hash
 function redirectToMainPage() {
-  // Get all checked checkboxes with the name 'model'
-  const checkedModels = Array.from(document.querySelectorAll('input[name="model"]:checked'));
-
-  // Extract their values into a comma-separated string
-  const selectedModel = checkedModels.map(checkbox => checkbox.value).join(',');
-
-  // Redirect if there are selected models, otherwise show an alert
-  if (selectedModel) {
-    // Get current hash parameters and preserve them
-    const currentHash = getHash();
-    // Update the models parameter
-    currentHash.models = selectedModel;
-    
-    // Use updateHash to properly handle nested objects without redirecting
-    updateHash(currentHash);
-    
-    // Navigate to parent directory with hash preserved
-    window.location.href = '../' + window.location.hash;
-  } else {
+  const selected = RSModelSelect.selected();
+  if (!selected.length) {
     alert("Please select a model first.");
+    return;
   }
+  const currentHash = getHash();
+  currentHash.models = selected.join(',');
+  updateHash(currentHash);
+  window.location.href = '../' + window.location.hash;
 }
-
 </script>
 </head>
 
-<body>
+<body data-param-input="realitystream-api">
 
 <div class="content contentpadding">
-  <div id="readmeDiv" class="mdTable"></div>
+  <div id="readmeIntro"></div>
+
+  <section class="rs-panel" id="rsUsage"></section>
+
+  <section class="rs-panel">
+    <h2>Settings</h2>
+    <select id="parambase"></select>
+    <div id="pathControls"></div>
+
+    <div class="rs-label">Models</div>
+    <div id="modelSelect"></div>
+
+    <div class="rs-label">Parameters YAML <span style="font-weight:400;opacity:.7">(editable)</span></div>
+    <div id="paramText" contenteditable><pre>models: rfc</pre></div>
+
+    <div id="rsRunControls"></div>
+  </section>
+
+  <section class="rs-panel" id="rsResults"></section>
+
+  <div id="readmeOutro"></div>
 </div>
 
+<script src="../../cloud/run/js/param-input.js"></script>
+<script src="../js/model-select.js"></script>
+<script src="../js/run-panel.js"></script>
+<script>
+// The README's intro and closing text surround the settings; its model sections are in the picker
+RSModelSelect.loadReadme().then(readme => {
+  RSModelSelect.renderMarkdown(document.getElementById('readmeIntro'), readme.intro);
+  RSModelSelect.renderMarkdown(document.getElementById('readmeOutro'), readme.outro);
+});
+</script>
 </body>
 </html>

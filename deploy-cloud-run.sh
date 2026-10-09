@@ -28,13 +28,20 @@ if [ ! -x "$RBF" ]; then
   rm -rf "$tmp"
 fi
 
+# API key: when the project has a realitystream-api-key secret, Cloud Run reads REALITYSTREAM_API_KEY from it.
+# Without a key, callers get 1 model once per day (see models/main.py).
+SECRETS_FLAG=""
+if gcloud secrets describe realitystream-api-key --project "$PROJECT" --quiet >/dev/null 2>&1; then
+  SECRETS_FLAG="--set-secrets=REALITYSTREAM_API_KEY=realitystream-api-key:latest"
+fi
+
 case "${1:-cpu}" in
   cpu) gcloud run deploy realitystream --source . --project "$PROJECT" --region "$REGION" --allow-unauthenticated \
-         --cpu 4 --memory 2Gi --timeout 3600 --max-instances 1 ;;
+         --cpu 4 --memory 2Gi --timeout 3600 --max-instances 1 $SECRETS_FLAG ;;
   # GPU instances bill per instance (about $0.0004/s for L4 + 8 vCPU + 32 GiB), so the cap uses that rate
   gpu) gcloud run deploy realitystream-gpu --source . --project "$PROJECT" --region "$REGION" --allow-unauthenticated \
          --gpu 1 --gpu-type nvidia-l4 --no-gpu-zonal-redundancy \
          --cpu 8 --memory 32Gi --no-cpu-throttling --max-instances 1 --timeout 900 \
-         --set-env-vars ENABLE_GPU=true,COST_PER_SECOND_USD=0.0004 ;;
+         --set-env-vars ENABLE_GPU=true,COST_PER_SECOND_USD=0.0004 $SECRETS_FLAG ;;
   *) echo "usage: $0 [cpu|gpu]"; exit 1 ;;
 esac
