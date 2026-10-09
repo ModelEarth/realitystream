@@ -7,11 +7,14 @@
 //
 // Containers (each optional except #rsRunControls):
 //   #rsUsage        today's run time and cost
-//   #rsRunControls  SMOTE choice, API key, Run button and status
+//   #rsRunControls  SMOTE choice, Team Passphrase, Run button and status
+//   #rsApiKey       where the Team Passphrase field goes instead, when present (model-select.js adds it
+//                   to the Models panel, at the right of "Enter the Team Passphrase to choose more than one model.")
 //
-// Without an API key the service allows 1 model, once per day, so the models picker switches to
-// single-model mode and a note explains how to run more. A key typed into the API key field is
-// remembered in this browser (localStorage) until "Forget key".
+// The Team Passphrase is the service's REALITYSTREAM_API_KEY (sent as header X-API-Key), shared with the
+// team; it isn't a Google key. Without it the service allows 1 model, once per day, so the models picker
+// switches to single-model mode and a note explains how to run more. A passphrase typed into the field
+// is remembered in this browser (localStorage) until "Forget passphrase".
 //   #rsResults      results table after a run
 //   #rsEndpoints    list of API endpoints
 
@@ -79,20 +82,20 @@
     const note = document.querySelector('#rsRunControls .rs-free-note');
     if (note) {
       note.style.display = limited ? 'block' : 'none';
-      note.innerHTML = 'Without an API key, you can run 1 model once per day. ' + moreRunsHtml();
+      note.innerHTML = 'Without the Team Passphrase, you can run 1 model once per day. ' + moreRunsHtml();
     }
-    const forget = document.querySelector('#rsRunControls .rs-forget-key');
+    const forget = document.querySelector('.rs-forget-key');
     if (forget) forget.style.display = savedKey() ? 'inline' : 'none';
-    const keyState = document.querySelector('#rsRunControls .rs-key-state');
+    const keyState = document.querySelector('.rs-key-state');
     if (keyState) {
-      const typed = document.querySelector('#rsRunControls .rs-api-key input').value;
-      keyState.textContent = !typed ? '' : keyValid ? 'Key accepted' : 'Key not accepted';
+      const typed = document.querySelector('.rs-api-key input').value;
+      keyState.textContent = !typed ? '' : keyValid ? 'Passphrase accepted' : 'Passphrase not accepted';
     }
   }
 
-  // Ask the service whether the key in the API key field is valid
+  // Ask the service whether the Team Passphrase in the field is valid
   async function checkKey() {
-    const value = document.querySelector('#rsRunControls .rs-api-key input').value.trim();
+    const value = document.querySelector('.rs-api-key input').value.trim();
     let valid = false;
     if (value) {
       try {
@@ -127,7 +130,7 @@
       fill.style.width = pct + '%';
       fill.classList.toggle('full', pct >= 100);
     }
-    const keyRow = document.querySelector('#rsRunControls .rs-api-key');
+    const keyRow = document.querySelector('.rs-api-key');
     if (keyRow) keyRow.style.display = info.api_key_enabled ? 'flex' : 'none';
     if (keyChecked) applyKeyMode();
     if ($('rsEndpoints')) {
@@ -172,7 +175,7 @@
     const smote = (document.querySelector('#rsRunControls input[name="rs_smote"]:checked') || {}).value || '';
     const url = apiBase() + 'run' + (smote ? '?smote=' + smote : '');
     const headers = { 'Content-Type': 'text/yaml' };
-    const key = document.querySelector('#rsRunControls .rs-api-key input');
+    const key = document.querySelector('.rs-api-key input');
     if (key && key.value) headers['X-API-Key'] = key.value;
 
     const button = document.querySelector('#rsRunControls .rs-run-button');
@@ -190,11 +193,11 @@
       } else if (data.status === 'missing_key') {
         setStatus(`${data.key} is needed. ${data.how_to_get_it || ''}`, 'error');
       } else if (data.more_runs_url) {
-        // Limits without an API key: link the ways to run more
+        // Limits without the Team Passphrase: link the ways to run more
         const msg = escapeHtml((data.message || '').replace(/To run more,.*$/, '').trim());
         setStatus('', 'error', msg + ' ' + moreRunsHtml());
       } else if (resp.status === 401) {
-        setStatus('The API key was not accepted. Check it, or choose Forget key to run without one.', 'error');
+        setStatus('The Team Passphrase was not accepted. Check it, or choose Forget passphrase to run without one.', 'error');
       } else {
         setStatus(data.message || `Run failed (HTTP ${resp.status}).`, 'error');
       }
@@ -228,9 +231,9 @@
   <label><input type="radio" name="rs_smote" value="1"> With SMOTE</label>
 </div>
 <div class="rs-run-actions rs-api-key" style="display:none">
-  <label>API key <input type="password" autocomplete="off" placeholder="Optional"></label>
+  <label>Team Passphrase <input type="password" autocomplete="off" placeholder="Optional"></label>
   <span class="rs-key-state"></span>
-  <button type="button" class="rs-forget-key" style="display:none">Forget key</button>
+  <button type="button" class="rs-forget-key" style="display:none">Forget passphrase</button>
 </div>
 <div class="rs-free-note" style="display:none"></div>
 <div class="rs-run-actions">
@@ -247,6 +250,14 @@
       keyInput.value = '';
       checkKey();
     });
+    // Move the Team Passphrase field into #rsApiKey (the Models panel) once the models picker has drawn it
+    const keyRow = controls.querySelector('.rs-api-key');
+    const placeKeyRow = () => {
+      const slot = document.getElementById('rsApiKey');
+      if (slot && keyRow.parentNode !== slot) slot.appendChild(keyRow);
+    };
+    placeKeyRow();
+    document.addEventListener('rsModelSelectRendered', placeKeyRow);
     if ($('rsResults')) {
       $('rsResults').innerHTML = '<h2>Results</h2><div class="rs-results-body"></div>';
       $('rsResults').style.display = 'none';

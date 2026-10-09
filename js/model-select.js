@@ -135,7 +135,8 @@
     return yamlModels();
   }
 
-  // Single mode (set by run-panel.js without an API key) allows one model at a time
+  // Single mode (set by run-panel.js without the Team Passphrase) allows one model at a time.
+  // The toolbar's #rsApiKey holds run-panel.js's Team Passphrase field, at the right of the single-mode note.
   let single = false;
 
   // In single mode, keep only the first checked model and pass that on to the hash and YAML
@@ -211,8 +212,10 @@
 
   const STYLE = `
 .rs-model-select { margin:8px 0; }
-.rs-models-toolbar { margin:0 0 6px; font-size:14px; }
-.rs-models-single { margin-left:12px; opacity:.75; }
+.rs-models-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; margin:0 0 8px; font-size:14px; }
+.rs-api-key-slot { margin-left:auto; }
+.rs-api-key-slot .rs-api-key { margin:0 !important; }
+.rs-models-single { opacity:.75; }
 .rs-models-toolbar button { background:none; border:0; padding:0; color:inherit; text-decoration:underline; cursor:pointer; font:inherit; opacity:.8; }
 .rs-model-row { border-top:1px solid rgba(127,127,127,.25); }
 .rs-model-row:last-child { border-bottom:1px solid rgba(127,127,127,.25); }
@@ -247,7 +250,8 @@
       }
       host.classList.add('rs-model-select');
       host.innerHTML = '<div class="rs-models-toolbar"><button type="button" class="rs-expand-all">Expand all</button>'
-        + `<span class="rs-models-single" style="display:${single ? 'inline' : 'none'}">Without an API key, choose 1 model.</span></div>`
+        + `<span class="rs-models-single" style="display:${single ? 'inline' : 'none'}">Enter the Team Passphrase to choose more than one model.</span>`
+        + '<div id="rsApiKey" class="rs-api-key-slot"></div></div>'
         + models.map(m => `
 <div class="rs-model-row">
   <div class="rs-model-head">
@@ -274,6 +278,8 @@
         updateAllBtn();
       });
       bind();
+      // run-panel.js places its Team Passphrase field in #rsApiKey
+      document.dispatchEvent(new Event('rsModelSelectRendered'));
       return models;
     });
   }

@@ -19,12 +19,13 @@
 <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
 <script src="../../localsite/js/showdown.min.js"></script>
 <style>
-.rs-panel { border-radius:12px; padding:18px 20px; margin:0 0 16px; background:rgba(127,127,127,.08); }
+.rs-panel { border-radius:12px; padding:18px 20px; margin:0 0 16px; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.06); }
+.dark .rs-panel { background:#1d2128; box-shadow:none; }
 .rs-panel h2 { font-size:18px; margin:0 0 12px; }
 .rs-label { font-weight:600; margin:16px 0 6px; }
 #parambase { padding:6px 8px; border-radius:8px; max-width:100%; }
-#paramText { border-radius:8px; padding:4px 14px; overflow-x:auto; outline:none; background:rgba(127,127,127,.1); }
-#paramText pre { margin:10px 0; font-size:13px; white-space:pre-wrap; word-break:break-word; background:transparent; }
+/* Same YAML box as /realitystream/: localsite's .codetext plus these overrides */
+#paramText { font-size:0.9em; overflow:scroll !important; padding-top:0px; padding-bottom:0px; outline:none; }
 </style>
 <script>
 // Continue (in README.md) returns to RealityStream with the selected models in the hash
@@ -50,15 +51,17 @@ function redirectToMainPage() {
   <section class="rs-panel" id="rsUsage"></section>
 
   <section class="rs-panel">
+    <h2>Models</h2>
+    <div id="modelSelect"></div>
+  </section>
+
+  <section class="rs-panel">
     <h2>Settings</h2>
     <select id="parambase"></select>
+
+    <!-- Features and targets, updated as the YAML below is edited -->
     <div id="pathControls"></div>
-
-    <div class="rs-label">Models</div>
-    <div id="modelSelect"></div>
-
-    <div class="rs-label">Parameters YAML <span style="font-weight:400;opacity:.7">(editable)</span></div>
-    <div id="paramText" contenteditable><pre>models: rfc</pre></div>
+    <div id="paramText" class="codetext" contenteditable><pre>models: rfc</pre></div>
 
     <div id="rsRunControls"></div>
   </section>

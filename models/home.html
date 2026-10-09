@@ -19,9 +19,9 @@
 <script src="{{ASSET_BASE}}localsite/js/localsite.js?showheader=false"></script>
 <script src="{{ASSET_BASE}}localsite/js/showdown.min.js"></script>
 <style>
-:root { --bg:#f6f7f9; --panel:#fff; --text:#1d2330; --muted:#5d6675; --line:#e3e6eb; --accent:#2f6fde; --code:#f1f3f6; }
+:root { --bg:#f6f7f9; --panel:#fff; --text:#1d2330; --muted:#5d6675; --line:#e3e6eb; --accent:#2f6fde; }
 /* localsite.js sets body.dark for the site's dark theme, which param.css also uses */
-body.dark { --bg:#14171c; --panel:#1d2128; --text:#e6e9ef; --muted:#9aa3b2; --line:#2c323c; --accent:#5b8ff0; --code:#161a20; }
+body.dark { --bg:#14171c; --panel:#1d2128; --text:#e6e9ef; --muted:#9aa3b2; --line:#2c323c; --accent:#5b8ff0; }
 body { margin:0; background:var(--bg) !important; color:var(--text) !important; font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif; }
 main { max-width:900px; margin:0 auto; padding:24px 16px 48px; }
 h1 { font-size:24px; margin:0 0 4px; } h2 { font-size:16px; margin:0 0 12px; }
@@ -29,8 +29,8 @@ h1 { font-size:24px; margin:0 0 4px; } h2 { font-size:16px; margin:0 0 12px; }
 .panel { background:var(--panel); border-radius:12px; padding:18px 20px; margin-bottom:16px; }
 .label { font-weight:600; margin:16px 0 6px; }
 #parambase { padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--panel); color:var(--text); max-width:100%; }
-#paramText { background:var(--code); border-radius:8px; padding:4px 14px; overflow-x:auto; outline:none; }
-#paramText pre { margin:10px 0; font-size:13px; white-space:pre-wrap; word-break:break-word; }
+/* Same YAML box as /realitystream/: localsite's .codetext plus these overrides */
+#paramText { font-size:0.9em; overflow:scroll !important; padding-top:0px; padding-bottom:0px; outline:none; }
 code { font-size:13px; }
 a { color:var(--accent); }
 </style>
@@ -44,15 +44,17 @@ Also at <a href="https://model.earth/realitystream/models/">model.earth/realitys
 <section class="panel" id="rsUsage"></section>
 
 <section class="panel">
+  <h2>Models</h2>
+  <div id="modelSelect"></div>
+</section>
+
+<section class="panel">
   <h2>Settings</h2>
   <select id="parambase"></select>
+
+  <!-- Features and targets, updated as the YAML below is edited -->
   <div id="pathControls"></div>
-
-  <div class="label">Models</div>
-  <div id="modelSelect"></div>
-
-  <div class="label">Parameters YAML <span style="font-weight:400;color:var(--muted)">(editable)</span></div>
-  <div id="paramText" contenteditable><pre>models: rfc</pre></div>
+  <div id="paramText" class="codetext" contenteditable><pre>models: rfc</pre></div>
 
   <!-- This page is served by the API itself, so runs go to the same server -->
   <div id="rsRunControls" data-api="./"></div>

@@ -13,7 +13,7 @@ RealityStream serverless API for Google Cloud Run: Flask wrapper around run_mode
 
 A missing key (for example GITHUB_REPORTS_TOKEN when upload=1) returns HTTP 400 with
 `how_to_get_it`, which the front end shows to the user instead of a stack trace.
-With the API key (header X-API-Key matching REALITYSTREAM_API_KEY), a caller gets DAILY_RUNS_PER_USER
+With the Team Passphrase (header X-API-Key matching REALITYSTREAM_API_KEY, shared with the team; not a Google key), a caller gets DAILY_RUNS_PER_USER
 runs a day (default 20) with any number of models, and may use upload=1. Without a key, a caller gets
 FREE_RUNS_PER_DAY run (default 1) of 1 model; past that, HTTP 429 with how to run more.
 Callers are identified by IP address. Runs also stop for the day once their estimated cost reaches
@@ -52,7 +52,7 @@ if REALITYSTREAM_DIR not in sys.path:
 app = Flask(__name__)
 
 DAILY_RUNS_PER_USER = int(os.environ.get("DAILY_RUNS_PER_USER", "20"))
-# Without the API key: this many runs a day per caller, of one model each
+# Without the Team Passphrase: this many runs a day per caller, of one model each
 FREE_RUNS_PER_DAY = int(os.environ.get("FREE_RUNS_PER_DAY", "1"))
 MORE_RUNS_URL = "https://model.earth/cloud/run/#googleaccountautomation"
 MORE_RUNS = ("To run more, add a REALITYSTREAM_API_KEY for this Google Cloud project, "
@@ -244,7 +244,7 @@ def run():
         return "", 204
     status = key_status()
     if status == "invalid":
-        return jsonify({"status": "error", "message": "Invalid X-API-Key"}), 401
+        return jsonify({"status": "error", "message": "Team Passphrase not accepted (header X-API-Key)"}), 401
     keyed = status == "valid"
 
     if request.is_json:
@@ -264,7 +264,7 @@ def run():
     smote = None if smote_arg == "" else smote_arg in ("1", "true")
 
     if not keyed:
-        # Without the API key: 1 model, no report upload
+        # Without the Team Passphrase: 1 model, no report upload
         from run_models import load_parameters
 
         try:
@@ -281,10 +281,10 @@ def run():
             return jsonify({"status": "error", "message": f"Invalid parameters: {exc}"}), 400
         if model_count > 1:
             return jsonify({"status": "key_needed", "more_runs_url": MORE_RUNS_URL,
-                            "message": f"Without an API key, choose 1 model. {MORE_RUNS}"}), 403
+                            "message": f"Without the Team Passphrase, choose 1 model. {MORE_RUNS}"}), 403
         if upload:
             return jsonify({"status": "key_needed", "more_runs_url": MORE_RUNS_URL,
-                            "message": f"Uploading reports needs an API key. {MORE_RUNS}"}), 403
+                            "message": f"Uploading reports needs the Team Passphrase. {MORE_RUNS}"}), 403
 
     today = usage.today()
     caller = caller_id()
@@ -305,7 +305,7 @@ def run():
             return jsonify({"status": "throttled", "caller": caller,
                             "message": f"Daily limit of {DAILY_RUNS_PER_USER} runs reached. Resets at midnight Eastern Time."}), 429
         return jsonify({"status": "throttled", "caller": caller, "more_runs_url": MORE_RUNS_URL,
-                        "message": f"Without an API key, you can run 1 model once per day. {MORE_RUNS}"}), 429
+                        "message": f"Without the Team Passphrase, you can run 1 model once per day. {MORE_RUNS}"}), 429
     usage.count_run(count_as, today)
 
     with tempfile.TemporaryDirectory(prefix="realitystream_") as work:
