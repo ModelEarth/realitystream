@@ -44,6 +44,7 @@
 .rs-usage-stats { display:flex; flex-wrap:wrap; gap:8px 24px; opacity:.85; }
 .rs-run-label { font-weight:600; margin:16px 0 6px; }
 .rs-run-label-note { font-weight:400; }
+.rs-report-dest { margin-top:10px; opacity:.85; }
 .rs-smote { display:flex; flex-wrap:wrap; gap:6px 20px; }
 .rs-smote label { display:inline-flex; gap:6px; align-items:center; cursor:pointer; }
 .rs-run-actions { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-top:18px; }
@@ -188,7 +189,10 @@
     });
     host.querySelector('.rs-results-body').innerHTML = '<div class="rs-table-wrap"><table class="rs-table">'
       + '<tr><th>Model</th><th>Training</th><th>Accuracy</th><th>ROC-AUC</th><th>F1</th><th>Precision</th><th>Recall</th><th>Time</th></tr>'
-      + (rows.join('') || '<tr><td colspan="8">No models were trained.</td></tr>') + '</table></div>';
+      + (rows.join('') || '<tr><td colspan="8">No models were trained.</td></tr>') + '</table></div>'
+      + (data.uploaded_to
+        ? `<p>Report uploaded to <a href="https://github.com/modelearth/reports/tree/main/${escapeHtml(data.uploaded_to)}" target="_blank" rel="noopener">modelearth/reports/${escapeHtml(data.uploaded_to)}</a></p>`
+        : '');
     host.style.display = 'block';
   }
 
@@ -266,7 +270,9 @@
 <div class="rs-run-actions">
   <button type="button" class="rs-run-button">Run Models</button>
   <span class="rs-run-status"></span>
-</div>`;
+</div>
+<div class="rs-report-dest">Report uploads (<code>/run?upload=1</code> with the Team Passphrase) go to GitHub
+  <a href="https://github.com/modelearth/reports" target="_blank" rel="noopener">modelearth/reports</a>, in a <code>{year}/run-{date-time}</code> folder.</div>`;
     controls.querySelector('.rs-run-button').addEventListener('click', runModels);
     const keyInput = controls.querySelector('.rs-api-key input');
     keyInput.value = savedKey();
