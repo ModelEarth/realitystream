@@ -14,6 +14,20 @@ REGION="${REGION:-us-central1}"
 if [ -z "$PROJECT" ]; then echo "Set GOOGLE_PROJECT_ID in the shared env file"; exit 1; fi
 ./add-team-members.sh
 
+# Bundle the Random Bits Forest binary (Linux x86-64) in the upload so runs don't download it.
+# run_models.RandomBitsForest looks for it at this path; it's gitignored and kept by .gcloudignore.
+RBF="models/random-bits-forest/rbf/rbf"
+if [ ! -x "$RBF" ]; then
+  echo "Downloading the Random Bits Forest binary for the build"
+  tmp="$(mktemp -d)"
+  curl -sSL --fail -A realitystream -o "$tmp/rbf.zip" \
+    "${RBF_BINARY_URL:-https://downloads.sourceforge.net/project/random-bits-forest/rbf.zip}"
+  mkdir -p "$(dirname "$RBF")"
+  unzip -q -o "$tmp/rbf.zip" rbf -d "$(dirname "$RBF")"
+  chmod 755 "$RBF"
+  rm -rf "$tmp"
+fi
+
 case "${1:-cpu}" in
   cpu) gcloud run deploy realitystream --source . --project "$PROJECT" --region "$REGION" --allow-unauthenticated \
          --memory 2Gi --timeout 900 --max-instances 1 ;;
