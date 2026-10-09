@@ -1,7 +1,8 @@
 """
 RealityStream serverless API for Google Cloud Run: Flask wrapper around run_models.run_pipeline.
 
-    GET  /                     home page: today's run time and cost, endpoints, presets (JSON for non-browsers)
+    GET  /                     home page (models/home.html): settings, Run button, today's run time and cost;
+                               JSON for non-browsers
     GET  /health               liveness probe
     GET  /parameters           preset YAML files in parameters/
     POST /run[?upload=1][&smote=0|1]
@@ -30,7 +31,6 @@ Local (from the realitystream folder):
 import base64
 import hashlib
 import hmac
-import html
 import json
 import os
 import sys
@@ -184,40 +184,24 @@ ENDPOINTS = {
 }
 SOURCE_URL = "https://github.com/ModelEarth/realitystream/blob/main/models/main.py"
 
-HOME_PAGE = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RealityStream API</title>
-<style>
-:root {{ --bg:#f6f7f9; --panel:#fff; --text:#1d2330; --muted:#5d6675; --line:#e3e6eb; --bar:#e8ebf0; --fill:#2f6fde; --warn:#c2410c; }}
-@media (prefers-color-scheme: dark) {{ :root {{ --bg:#14171c; --panel:#1d2128; --text:#e6e9ef; --muted:#9aa3b2; --line:#2c323c; --bar:#2c323c; --fill:#5b8ff0; --warn:#fb923c; }} }}
-body {{ margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif; }}
-main {{ max-width:760px; margin:0 auto; padding:24px 16px 40px; }}
-h1 {{ font-size:24px; margin:0 0 4px; }} h2 {{ font-size:16px; margin:0 0 12px; }}
-.sub {{ color:var(--muted); margin:0 0 20px; }}
-.panel {{ background:var(--panel); border-radius:12px; padding:18px 20px; margin-bottom:16px; }}
-.bar {{ height:10px; background:var(--bar); border-radius:6px; overflow:hidden; margin:10px 0 6px; }}
-.fill {{ height:100%; background:var(--fill); }} .fill.full {{ background:var(--warn); }}
-.stats {{ display:flex; flex-wrap:wrap; gap:8px 24px; color:var(--muted); }} .stats b {{ color:var(--text); }}
-table {{ width:100%; border-collapse:collapse; }} td {{ padding:8px 0; border-top:1px solid var(--line); vertical-align:top; }}
-td:first-child {{ white-space:nowrap; padding-right:16px; }} code {{ font-size:13px; }}
-ul {{ margin:0; padding-left:20px; columns:2 220px; }} a {{ color:var(--fill); }}
-</style></head><body><main>
-<h1>RealityStream API</h1>
-<p class="sub">Google Cloud Run service for the RealityStream models. Opening this page doesn't run a model; only POST /run does.</p>
-<section class="panel">
-<h2>Today's model run time ({day}, resets at midnight Eastern)</h2>
-<div class="bar"><div class="fill{full}" style="width:{pct:.0f}%"></div></div>
-<div class="stats"><span><b>{minutes:.1f}</b> minutes run</span><span><b>{remaining:.1f}</b> of {limit_minutes:.0f} minutes left</span><span><b>${cost:.3f}</b> of ${limit:.2f}</span><span><b>{runs}</b> runs</span></div>
-</section>
-<section class="panel"><h2>Endpoints</h2><table>{endpoint_rows}</table></section>
-<section class="panel"><h2>Presets for POST /run</h2><ul>{preset_items}</ul></section>
-<p class="sub"><a href="{source}">Source: models/main.py</a></p>
-</main></body></html>"""
+HOME_PAGE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "home.html")
+# Webroot the home page loads shared files from (param-input.js, model-select.js, localsite.js).
+# Set ASSET_BASE=http://localhost:8887/ to test local changes to those files.
+ASSET_BASE = os.environ.get("ASSET_BASE", "https://model.earth/")
+
+
+def api_key_required():
+    from run_models import get_env
+
+    return bool(get_env("REALITYSTREAM_API_KEY", ""))
 
 
 @app.route("/", methods=["GET"])
 def index():
-    """Home page: today's run time and cost, endpoints and presets. JSON unless a browser asks for HTML."""
+    """Home page (models/home.html) for browsers; JSON with today's totals and the endpoints otherwise."""
+    if "text/html" in request.headers.get("Accept", ""):
+        with open(HOME_PAGE_FILE, encoding="utf-8") as fh:
+            return fh.read().replace("{{ASSET_BASE}}", ASSET_BASE), 200, {"Content-Type": "text/html; charset=utf-8"}
     day = usage.today()
     try:
         totals = usage.totals(day)
@@ -225,21 +209,11 @@ def index():
         totals = None
     # Minutes left = remaining budget at the current per-second rate
     remaining = max(0.0, (DAILY_COST_LIMIT_USD - (totals or {}).get("cost_usd", 0.0)) / COST_PER_SECOND_USD / 60)
-    if "text/html" not in request.headers.get("Accept", ""):
-        return jsonify({"service": "realitystream", "day": day, "today": totals,
-                        "minutes_left_today": round(remaining, 1) if totals else None,
-                        "daily_cost_limit_usd": DAILY_COST_LIMIT_USD, "daily_limit_minutes": round(DAILY_LIMIT_MINUTES, 1),
-                        "endpoints": ENDPOINTS, "source": SOURCE_URL}), 200
-    totals = totals or {"seconds": 0.0, "cost_usd": 0.0, "runs": 0}
-    pct = min(100.0, 100.0 * totals["cost_usd"] / DAILY_COST_LIMIT_USD) if DAILY_COST_LIMIT_USD else 100.0
-    return HOME_PAGE.format(
-        day=day, minutes=totals["seconds"] / 60, remaining=remaining, limit_minutes=DAILY_LIMIT_MINUTES,
-        cost=totals["cost_usd"], limit=DAILY_COST_LIMIT_USD, runs=totals["runs"],
-        pct=pct, full=" full" if pct >= 100 else "", source=SOURCE_URL,
-        endpoint_rows="".join(f"<tr><td><code>{html.escape(k)}</code></td><td>{html.escape(v)}</td></tr>"
-                              for k, v in ENDPOINTS.items()),
-        preset_items="".join(f"<li><code>{html.escape(f)}</code></li>" for f in preset_files()),
-    ), 200
+    return jsonify({"service": "realitystream", "day": day, "today": totals,
+                    "minutes_left_today": round(remaining, 1) if totals else None,
+                    "daily_cost_limit_usd": DAILY_COST_LIMIT_USD, "daily_limit_minutes": round(DAILY_LIMIT_MINUTES, 1),
+                    "api_key_required": api_key_required(),
+                    "endpoints": ENDPOINTS, "source": SOURCE_URL}), 200
 
 
 @app.route("/health", methods=["GET"])

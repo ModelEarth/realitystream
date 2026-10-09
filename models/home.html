@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RealityStream Run Models</title>
+<link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon">
+<!--
+  Home page of the RealityStream Cloud Run service, served at / by models/main.py.
+  {{ASSET_BASE}} is the webroot that shared files load from: https://model.earth/ on Cloud Run,
+  or http://localhost:8887/ when testing locally (ASSET_BASE env var).
+  The settings below are the same shared filters used by cloud/run/page.html and realitystream/models/:
+  cloud/run/js/param-input.js (parameter base, features and targets, YAML) and
+  realitystream/js/model-select.js (models, listed in realitystream/models/README.md).
+-->
+<link rel="stylesheet" href="{{ASSET_BASE}}cloud/run/css/param.css">
+<script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+<script src="{{ASSET_BASE}}localsite/js/localsite.js?showheader=false"></script>
+<style>
+:root { --bg:#f6f7f9; --panel:#fff; --text:#1d2330; --muted:#5d6675; --line:#e3e6eb; --bar:#e8ebf0; --accent:#2f6fde; --warn:#c2410c; --ok:#15803d; --code:#f1f3f6; }
+/* localsite.js sets body.dark for the site's dark theme, which param.css also uses */
+body.dark { --bg:#14171c; --panel:#1d2128; --text:#e6e9ef; --muted:#9aa3b2; --line:#2c323c; --bar:#2c323c; --accent:#5b8ff0; --warn:#fb923c; --ok:#4ade80; --code:#161a20; }
+body { margin:0; background:var(--bg) !important; color:var(--text) !important; font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif; }
+main { max-width:900px; margin:0 auto; padding:24px 16px 48px; }
+h1 { font-size:24px; margin:0 0 4px; } h2 { font-size:16px; margin:0 0 12px; }
+.sub { color:var(--muted); margin:0 0 20px; }
+.panel { background:var(--panel); border-radius:12px; padding:18px 20px; margin-bottom:16px; }
+.bar { height:10px; background:var(--bar); border-radius:6px; overflow:hidden; margin:10px 0 6px; }
+.fill { height:100%; width:0; background:var(--accent); transition:width .3s; } .fill.full { background:var(--warn); }
+.stats { display:flex; flex-wrap:wrap; gap:8px 24px; color:var(--muted); } .stats b { color:var(--text); }
+.label { font-weight:600; margin:16px 0 6px; }
+#parambase { padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--panel); color:var(--text); max-width:100%; }
+#paramText { background:var(--code); border-radius:8px; padding:4px 14px; overflow-x:auto; outline:none; }
+#paramText pre { margin:10px 0; font-size:13px; white-space:pre-wrap; word-break:break-word; }
+.smote { display:flex; flex-wrap:wrap; gap:6px 20px; }
+.smote label { display:inline-flex; gap:6px; align-items:center; cursor:pointer; }
+.actions { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-top:18px; }
+#runButton { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:10px 22px; font-size:16px; cursor:pointer; }
+#runButton:disabled { opacity:.6; cursor:default; }
+#runStatus { color:var(--muted); } #runStatus.error { color:var(--warn); } #runStatus.ok { color:var(--ok); }
+#apiKeyRow { display:none; }
+#apiKeyRow input { padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--panel); color:var(--text); width:260px; max-width:100%; }
+.table-wrap { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; font-size:14px; }
+th, td { text-align:left; padding:7px 10px 7px 0; border-top:1px solid var(--line); white-space:nowrap; }
+th { color:var(--muted); font-weight:600; }
+td.wrap { white-space:normal; }
+code { font-size:13px; }
+a { color:var(--accent); }
+#results { display:none; }
+</style>
+</head>
+<body data-param-input="realitystream-api">
+<main>
+<h1>RealityStream Run Models</h1>
+<p class="sub">Choose parameters, datasets and models, then run them on Google Cloud Run. Opening this page doesn't run a model; only the Run button does.</p>
+
+<section class="panel">
+  <h2>Today's model run time (<span id="usageDay">…</span>, resets at midnight Eastern)</h2>
+  <div class="bar"><div class="fill" id="usageFill"></div></div>
+  <div class="stats">
+    <span><b id="usageMinutes">…</b> minutes run</span>
+    <span><b id="usageLeft">…</b> of <span id="usageLimit">…</span> minutes left</span>
+    <span><b id="usageCost">…</b> of <span id="usageCostLimit">…</span></span>
+    <span><b id="usageRuns">…</b> runs</span>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Settings</h2>
+  <select id="parambase"></select>
+  <div id="pathControls"></div>
+
+  <div class="label">Models</div>
+  <div id="modelSelect"></div>
+
+  <div class="label">SMOTE oversampling</div>
+  <div class="smote">
+    <label><input type="radio" name="smote" value="" checked> Without and with SMOTE</label>
+    <label><input type="radio" name="smote" value="0"> Without SMOTE</label>
+    <label><input type="radio" name="smote" value="1"> With SMOTE</label>
+  </div>
+
+  <div class="label">Parameters YAML <span style="font-weight:400;color:var(--muted)">(editable)</span></div>
+  <div id="paramText" contenteditable><pre>models: rfc</pre></div>
+
+  <div class="actions" id="apiKeyRow">
+    <label>API key <input id="apiKey" type="password" autocomplete="off"></label>
+  </div>
+  <div class="actions">
+    <button id="runButton" type="button">Run Models</button>
+    <span id="runStatus"></span>
+  </div>
+</section>
+
+<section class="panel" id="results">
+  <h2>Results</h2>
+  <div class="table-wrap"><table id="resultsTable"></table></div>
+</section>
+
+<section class="panel">
+  <h2>API endpoints</h2>
+  <div class="table-wrap"><table id="endpointsTable"></table></div>
+</section>
+<p class="sub"><a href="https://github.com/ModelEarth/realitystream/blob/main/models/main.py">Source: models/main.py</a></p>
+</main>
+
+<script src="{{ASSET_BASE}}cloud/run/js/param-input.js"></script>
+<script src="{{ASSET_BASE}}realitystream/js/model-select.js"></script>
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  let info = null;
+
+  // Today's totals and the endpoint list come from this service's JSON home
+  async function refreshUsage() {
+    try {
+      info = await fetch('./', { headers: { Accept: 'application/json' }, cache: 'no-store' }).then(r => r.json());
+    } catch (e) {
+      return;
+    }
+    const t = info.today || { seconds: 0, cost_usd: 0, runs: 0 };
+    const pct = Math.min(100, 100 * t.cost_usd / info.daily_cost_limit_usd);
+    $('usageDay').textContent = info.day;
+    $('usageMinutes').textContent = (t.seconds / 60).toFixed(1);
+    $('usageLeft').textContent = info.minutes_left_today != null ? info.minutes_left_today.toFixed(1) : '?';
+    $('usageLimit').textContent = Math.round(info.daily_limit_minutes);
+    $('usageCost').textContent = '$' + t.cost_usd.toFixed(3);
+    $('usageCostLimit').textContent = '$' + info.daily_cost_limit_usd.toFixed(2);
+    $('usageRuns').textContent = t.runs;
+    $('usageFill').style.width = pct + '%';
+    $('usageFill').classList.toggle('full', pct >= 100);
+    $('apiKeyRow').style.display = info.api_key_required ? 'flex' : 'none';
+    $('endpointsTable').innerHTML = Object.entries(info.endpoints || {}).map(([k, v]) =>
+      `<tr><td><code>${escapeHtml(k)}</code></td><td class="wrap">${escapeHtml(v)}</td></tr>`).join('');
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function setStatus(text, kind) {
+    $('runStatus').textContent = text;
+    $('runStatus').className = kind || '';
+  }
+
+  const pct = v => (v == null ? '' : (v <= 1 ? (v * 100).toFixed(1) : Number(v).toFixed(1)) + '%');
+
+  function showResults(data) {
+    const rows = [];
+    [['no_smote', 'Without SMOTE'], ['smote', 'With SMOTE']].forEach(([key, label]) => {
+      (data[key] || []).forEach(r => rows.push(
+        `<tr><td>${escapeHtml(r.model_type || r.model || '')}</td><td>${label}</td><td>${pct(r.accuracy)}</td>`
+        + `<td>${pct(r.roc_auc)}</td><td>${pct(r.f1_score)}</td><td>${pct(r.precision)}</td><td>${pct(r.recall)}</td>`
+        + `<td>${r.time != null ? Number(r.time).toFixed(1) + ' s' : ''}</td></tr>`));
+    });
+    $('resultsTable').innerHTML = '<tr><th>Model</th><th>Training</th><th>Accuracy</th><th>ROC-AUC</th><th>F1</th>'
+      + '<th>Precision</th><th>Recall</th><th>Time</th></tr>'
+      + (rows.join('') || '<tr><td colspan="8">No models were trained.</td></tr>');
+    $('results').style.display = 'block';
+  }
+
+  async function runModels() {
+    const yaml = ($('paramText').querySelector('pre') || $('paramText')).textContent.trim();
+    if (!yaml) {
+      setStatus('Add parameters first.', 'error');
+      return;
+    }
+    const smote = (document.querySelector('input[name="smote"]:checked') || {}).value || '';
+    const url = 'run' + (smote ? '?smote=' + smote : '');
+    const headers = { 'Content-Type': 'text/yaml' };
+    if ($('apiKey').value) headers['X-API-Key'] = $('apiKey').value;
+
+    $('runButton').disabled = true;
+    const started = Date.now();
+    const timer = setInterval(() => setStatus(`Running… ${Math.round((Date.now() - started) / 1000)} s`), 1000);
+    setStatus('Running…');
+    try {
+      const resp = await fetch(url, { method: 'POST', headers, body: yaml });
+      const data = await resp.json().catch(() => ({}));
+      const secs = Math.round((Date.now() - started) / 1000);
+      if (resp.ok && data.status === 'success') {
+        showResults(data);
+        setStatus(`Finished in ${secs} s.`, 'ok');
+      } else if (data.status === 'missing_key') {
+        setStatus(`${data.key} is needed. ${data.how_to_get_it || ''}`, 'error');
+      } else {
+        setStatus(data.message || `Run failed (HTTP ${resp.status}).`, 'error');
+      }
+    } catch (e) {
+      setStatus('The service did not respond. Long runs can take several minutes; check today\'s totals and try again.', 'error');
+    } finally {
+      clearInterval(timer);
+      $('runButton').disabled = false;
+      refreshUsage();
+    }
+  }
+
+  $('runButton').addEventListener('click', runModels);
+  refreshUsage();
+})();
+</script>
+</body>
+</html>

@@ -12,6 +12,7 @@ shap/
 tests/
 models/*
 !models/main.py
+!models/home.html
 # Random Bits Forest binary, downloaded by deploy-cloud-run.sh
 !models/random-bits-forest/
 models/random-bits-forest/*
