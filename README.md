@@ -9,7 +9,7 @@ Our main input is currently industry features by county ID (FIPS) for exploring 
 We are also preping data for [International Trade Flow](https://model.earth/profile/trade).
 
 
-[Run_Models.ipynb](https://github.com/ModelEarth/realitystream/tree/main/models) is a backup of the [Run Models CoLab](https://colab.research.google.com/drive/1EFGEwh6v1-oYFTcNVCBOyl_HtfEC6INd?usp=sharing). The trimmed, runnable version of that notebook is [run_models.py](run_models.py) (see "Running RealityStream Locally" below).
+[run-models-colab.py](models/run-models-colab.py) is the .py export of the [Run Models CoLab](https://colab.research.google.com/drive/1EFGEwh6v1-oYFTcNVCBOyl_HtfEC6INd?usp=sharing), kept for reference. The trimmed, runnable version of that notebook is [run_models.py](run_models.py) (see "Running RealityStream Locally" below).
 
 - [Run Models CoLab](input/industries)
 - [Random Forests for Healthy Bees](../bee-data/)

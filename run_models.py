@@ -2,7 +2,7 @@
 RealityStream: run the "Run Models" pipeline from a parameters.yaml file.
 
 This is the trimmed, importable version of the Run Models colab
-(models/Run_Models.ipynb). It produces the same report folder the colab
+(models/run-models-colab.py is its raw export). It produces the same report folder the colab
 pushes to github.com/modelearth/reports:
 
     report/
