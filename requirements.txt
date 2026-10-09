@@ -11,3 +11,5 @@ keyring>=24            # optional local key store (see cloud/run /keys)
 openpyxl>=3.1          # NAICS6 industry names (xlsx)
 flask>=3.0
 gunicorn>=21.2
+google-cloud-firestore>=2.16   # daily usage totals on Cloud Run
+tzdata                         # time zone data for the Eastern Time daily reset

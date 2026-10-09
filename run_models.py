@@ -675,7 +675,8 @@ def setup_report_folder(report_dir):
 def write_reports(report_dir, params, results_no_smote, results_smote, importances):
     with open(os.path.join(report_dir, "parameters.yaml"), "w", encoding="utf-8") as fh:
         yaml.safe_dump(params, fh, sort_keys=False)
-    results_table(results_no_smote).to_csv(os.path.join(report_dir, "model_performance_report_no_smote.csv"), index=False)
+    if results_no_smote:
+        results_table(results_no_smote).to_csv(os.path.join(report_dir, "model_performance_report_no_smote.csv"), index=False)
     if results_smote:
         results_table(results_smote).to_csv(os.path.join(report_dir, "model_performance_report_smote.csv"), index=False)
     if "xgboost" in importances:
@@ -723,8 +724,11 @@ def summarize(results):
     return [{k: v for k, v in r.items() if k != "best_model"} for r in results]
 
 
-def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=20):
-    """Load params -> fetch data -> train (plain and SMOTE) -> write report folder -> optional upload."""
+def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=20, smote=None):
+    """Load params -> fetch data -> train (plain and SMOTE) -> write report folder -> optional upload.
+
+    smote: None trains both without and with SMOTE, False only without, True only with.
+    """
     from sklearn.model_selection import train_test_split
 
     print("=" * 60 + "\n  RealityStream Run Models\n" + "=" * 60)
@@ -738,12 +742,15 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=20):
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=RANDOM_STATE)
     print(f"  Train: {len(X_train)} rows   Test: {len(X_test)} rows   Features: {X.shape[1]}")
 
-    print("\n[TRAIN] Without SMOTE")
-    results_no_smote = train_models(X_train, y_train, X_test, y_test, keys, n_iter=n_iter)
+    results_no_smote, results_smote = [], []
+    if smote is not True:
+        print("\n[TRAIN] Without SMOTE")
+        results_no_smote = train_models(X_train, y_train, X_test, y_test, keys, n_iter=n_iter)
 
-    print("\n[TRAIN] With SMOTE")
-    X_sm, y_sm = apply_smote(X_train, y_train)
-    results_smote = train_models(X_sm, y_sm, X_test, y_test, keys, n_iter=n_iter) if X_sm is not None else []
+    if smote is not False:
+        print("\n[TRAIN] With SMOTE")
+        X_sm, y_sm = apply_smote(X_train, y_train)
+        results_smote = train_models(X_sm, y_sm, X_test, y_test, keys, n_iter=n_iter) if X_sm is not None else []
 
     map_naics = "naics" in str(getattr(param.features, "path", ""))
     importances = feature_importances(results_smote or results_no_smote, list(X.columns), map_naics)
@@ -772,9 +779,11 @@ def main():
     parser.add_argument("--report-dir", default="report", help="output folder (default: report)")
     parser.add_argument("--upload", action="store_true", help="push the report folder to modelearth/reports")
     parser.add_argument("--n-iter", type=int, default=20, help="RandomizedSearchCV iterations for xgboost/mlp")
+    parser.add_argument("--smote", choices=["0", "1"], help="0 = only without SMOTE, 1 = only with SMOTE (default: both)")
     args = parser.parse_args()
+    smote = None if args.smote is None else args.smote == "1"
     try:
-        summary = run_pipeline(args.yaml, args.report_dir, args.upload, args.n_iter)
+        summary = run_pipeline(args.yaml, args.report_dir, args.upload, args.n_iter, smote=smote)
     except MissingKey as exc:
         print(f"\n[KEY] {exc}")
         sys.exit(2)
