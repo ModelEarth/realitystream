@@ -41,6 +41,26 @@ def test_train_models_and_report_columns(tmp_path):
     assert list(imp["xgboost"].columns) == ["Feature", "Importance"]
 
 
+def test_join_aliases_fips_padding_and_index_column(monkeypatch):
+    # all-years style yaml: features.id / targets.column / join.key, unpadded FIPS vs padded, index column
+    param = rm.DictToObject({"features": {"id": "Fips", "path": "x"}, "targets": {"path": "y", "column": "Target"},
+                             "join": {"key": "Fips"}})
+    assert rm._common_column(param) == "Fips"
+    feats = pd.DataFrame({"Unnamed: 0": [0, 1], "Fips": [1001, 1003], "Emp-11": [5.0, 7.0]})
+    targs = pd.DataFrame({"Fips": ["01001", "01003"], "Target": [1, 0]})
+    monkeypatch.setattr(rm, "fetch_csv", lambda url: feats.copy() if url == "x" else targs.copy())
+    X, y = rm.load_data(param)
+    assert list(X.columns) == ["Emp-11"] and list(y) == [1, 0]
+
+
+def test_naics_name_keeps_prefix_and_year(monkeypatch):
+    monkeypatch.setitem(rm._NAICS_NAMES, 2, {"11": "Agriculture"})
+    monkeypatch.setitem(rm._NAICS_NAMES, 6, {"454310": "Fuel Dealers"})
+    assert rm.naics_name("Emp-11") == "Emp-11-Agriculture"
+    assert rm.naics_name("Pay-454310-2019") == "Pay-454310-Fuel Dealers-2019"
+    assert rm.naics_name("Km2") == "Km2"
+
+
 def test_missing_key_has_guidance(monkeypatch):
     monkeypatch.delenv("DATACOMMONS_API_KEY", raising=False)
     monkeypatch.setattr(rm, "env_file_path", lambda: None)
@@ -63,4 +83,5 @@ if __name__ == "__main__":
     test_smote_keeps_all_columns_and_balances()
     test_train_models_and_report_columns(tempfile.mkdtemp())
     test_missing_key_has_guidance(_Patch())
+    print("(alias and naics_name checks need pytest's monkeypatch)")
     print("all checks passed")
