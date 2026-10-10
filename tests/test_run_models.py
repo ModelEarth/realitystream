@@ -52,6 +52,19 @@ def test_missing_key_has_guidance(monkeypatch):
         raise AssertionError("expected MissingKey")
 
 
+def test_cli_writes_run_summary(tmp_path, monkeypatch):
+    """main() must write run_summary.json end to end (regression for the missing `import json`)."""
+    X, y = _data(n=60)
+    monkeypatch.setattr(rm, "load_data", lambda param: (X, y))
+    monkeypatch.setattr(rm, "setup_report_folder", lambda d: os.makedirs(d, exist_ok=True))
+    params = tmp_path / "params.yaml"
+    params.write_text("folder: t\nfeatures:\n  path: x\nmodels: [lr]\n", encoding="utf-8")
+    report = tmp_path / "report"
+    monkeypatch.setattr(sys, "argv", ["run_models.py", str(params), "--report-dir", str(report)])
+    rm.main()
+    assert (report / "run_summary.json").exists()
+
+
 if __name__ == "__main__":
     import tempfile
 
