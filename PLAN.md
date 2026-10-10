@@ -8,12 +8,16 @@ Linked from [ModelEarth/projects #63](https://github.com/ModelEarth/projects/iss
 |---|---|
 | run_models.py fixes: SMOTE shape, `state: all` (PR #60) | merged 2026-10-05 |
 | cuML fallback when RAPIDS is absent (PR #61, also in colab cell 2) | merged 2026-10-05 |
-| Fresh colab export trimmed into `run_models.py`; old `Run-Models-bkup` files removed | this PR |
-| Data Commons key moved to `DATACOMMONS_API_KEY` (rotation still needed) | this PR |
-| Cloud Run CPU service from this repo | next, needs access to the ModelEarth Google project |
-| CloudRoot: Worker proxy route `/api/realitystream/run` | after the CPU service exists |
-| Cloud Run GPU service, timing vs CPU | after CPU |
+| Fresh colab export trimmed into `run_models.py`; old `Run-Models-bkup` files removed (PR #62) | merged 2026-10-08 |
+| Data Commons key moved to `DATACOMMONS_API_KEY` | done; rotation of the old key still needed |
+| Cloud Run CPU service (`models/main.py`, buildpacks, 4 vCPU, Firestore usage totals, Team Passphrase) | live 2026-10-08 at realitystream-839376296196.us-central1.run.app |
+| Run panel on model.earth/realitystream/models calling the service | live 2026-10-09 |
+| Colab backup kept as a `.py` export (`models/run-models-colab.py`), no `.ipynb` in the repo | this PR |
+| CloudRoot: Worker proxy route `/api/realitystream/run` | next |
+| Cloud Run GPU service, timing vs CPU | after the proxy |
 | Tree canopy generalization (#63), Data Commons two-column targets | Oct 22 and Nov 5 PRs |
+
+How the raw export compares with `run_models.py` (2026-10-09): the export is 16,845 lines (10,612 code lines, 168 cells) and defines `train_multiple_models` seven times with 16 cuML import blocks; the module is 795 lines (646 code lines, 29 functions and classes), about 6 percent of the export, with the same report output.
 
 Known colab issues found while trimming (2026-10-06): the data-loading cell forces the eye-blinks parameters regardless of the selected YAML, five cells call a venv path on one developer's Mac, and the SMOTE training cell imports cudf unconditionally. None of these are in `run_models.py`.
 
