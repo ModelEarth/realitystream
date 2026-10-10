@@ -15,7 +15,9 @@ Linked from [ModelEarth/projects #63](https://github.com/ModelEarth/projects/iss
 | Colab backup kept as a `.py` export (`models/run-models-colab.py`), no `.ipynb` in the repo | this PR |
 | CloudRoot: Worker proxy route `/api/realitystream/run` | next |
 | Cloud Run GPU service, timing vs CPU | after the proxy |
-| Tree canopy generalization (#63), Data Commons two-column targets | Oct 22 and Nov 5 PRs |
+| Tree canopy generalization (#63): canopy and all-years YAMLs run unchanged, join aliases, FIPS padding, NAICS names | this PR (Oct 22 item) |
+| `timeseries` section in the canopy YAML | file is missing in tree-canopy; decision needed on what it should do |
+| Data Commons two-column targets | Nov 5 PR |
 
 How the raw export compares with `run_models.py` (2026-10-09): the export is 16,845 lines (10,612 code lines, 168 cells) and defines `train_multiple_models` seven times with 16 cuML import blocks; the module is 795 lines (646 code lines, 29 functions and classes), about 6 percent of the export, with the same report output.
 
