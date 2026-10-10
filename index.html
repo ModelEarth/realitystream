@@ -275,24 +275,11 @@ if (state.target?.kind === 'dcid' && state.target?.dcid) {
   history.replaceState(null, '', window.location.pathname + (newHash ? '#' + newHash : ''));
 }
 
+// Uses rsShowJoinStatus from cloud/run/js/param-input.js, shared with realitystream/models/
 function updateJoinStatus() {
   const el = document.getElementById('rsJoinStatus');
-  if (!el) return;
-
-  const yaml = rsGetYamlObjSafe();
-  const features = (yaml && yaml.features) ? yaml.features : {};
-  const common = (features.common || '').toString().trim();
-  const scope = (features.scope || yaml.scope || '').toString().trim();
-
-  if (!common && !scope) {
-    el.style.display = 'none';
-    return;
-  }
-
-  const scopeLabel = scope || 'country';
-  const commonLabel = common || 'FIPS';
-  el.textContent = `Joining on: ${scopeLabel} using common ${commonLabel}`;
-  el.style.display = 'block';
+  if (!el || typeof rsShowJoinStatus !== 'function') return;
+  rsShowJoinStatus(el, rsGetYamlObjSafe() || {});
 }
 
 function isProbablyDcid(v) {

@@ -28,7 +28,8 @@ h1 { font-size:24px; margin:0 0 4px; } h2 { font-size:16px; margin:0 0 12px; }
 .sub { color:var(--muted); margin:0 0 20px; }
 .panel { background:var(--panel); border-radius:12px; padding:18px 20px; margin-bottom:16px; }
 .label { font-weight:600; margin:16px 0 6px; }
-#parambase { padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--panel); color:var(--text); max-width:100%; }
+/* #parambase uses localsite's .ls-select (arrow kept clear of long text) and widens to its longest option */
+#parambase { max-width:100%; }
 /* Same YAML box as /realitystream/: localsite's .codetext plus these overrides */
 #paramText { font-size:0.9em; overflow:scroll !important; padding-top:0px; padding-bottom:0px; outline:none; }
 code { font-size:13px; }
@@ -50,7 +51,7 @@ Also at <a href="https://model.earth/realitystream/models/">model.earth/realitys
 
 <section class="panel" data-rs-layout>
   <h2>Settings</h2>
-  <select id="parambase"></select>
+  <select id="parambase" class="ls-select"></select>
 
   <!-- Features and targets, updated as the YAML below is edited -->
   <div id="pathControls"></div>

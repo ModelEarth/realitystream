@@ -14,7 +14,8 @@
 // The Team Passphrase is the service's REALITYSTREAM_API_KEY (sent as header X-API-Key), shared with the
 // team; it isn't a Google key. Without it the service allows 1 model, once per day, so the models picker
 // switches to single-model mode and a note explains how to run more. A passphrase typed into the field
-// is remembered in this browser (localStorage) until "Forget passphrase".
+// is remembered in this browser (localStorage) until "Clear" (which asks to confirm). Once a working
+// passphrase is saved, the field is hidden and only "Passphrase saved in browser" and Clear show.
 //   #rsResults      results table after a run
 //   #rsEndpoints    list of API endpoints
 //   [data-rs-layout] the Settings section: an Expand / Condense switch goes at the right of its h2.
@@ -48,16 +49,21 @@
 .rs-smote { display:flex; flex-wrap:wrap; gap:6px 20px; }
 .rs-smote label { display:inline-flex; gap:6px; align-items:center; cursor:pointer; }
 .rs-run-actions { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-top:18px; }
-.rs-run-button { background:#2f6fde; color:#fff; border:0; border-radius:8px; padding:10px 22px; font-size:16px; cursor:pointer; }
+/* Button shape shared by Run and Intro; button.rs-btn-shape outranks localsite's pill-shaped .btn.
+   Border width and style only, so Intro keeps localsite's .btn-clear border color. */
+button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; padding:9px 22px; font-size:16px; line-height:1.25; cursor:pointer; }
+.rs-run-button { background:#2f6fde; color:#fff; border-color:transparent; }
 .rs-run-button:disabled { opacity:.6; cursor:default; }
 .rs-run-button:hover:not(:disabled) { background:#2558b8; }
 /* A page's extra button at the far right of the Run row (Intro on realitystream/models/, which uses
-   localsite's transparent .btn-clear); same size and shape as the Run button */
-.rs-intro-button { margin-left:auto; border-radius:8px; padding:9px 22px; font-size:16px; cursor:pointer; }
+   localsite's transparent .btn-clear with the .rs-btn-shape shape) */
+.rs-intro-button { margin-left:auto; }
 .rs-layout-switch { margin-left:auto; display:inline-flex; border:1px solid rgba(127,127,127,.35); border-radius:8px; overflow:hidden; font-size:13px; font-weight:400; }
 .rs-layout-switch button { background:transparent; color:inherit; border:0; padding:4px 12px; cursor:pointer; font:inherit; }
 .rs-layout-switch button[aria-pressed="true"] { background:#2f6fde; color:#fff; }
 [data-rs-layout] > h2 { display:flex; align-items:center; gap:12px; }
+/* localsite's .flexmain h2::before (hash-link offset) would become a flex item and add space before the title */
+[data-rs-layout] > h2::before { display:none; }
 .rs-layout-expansive .rs-pickers { flex-direction:column; }
 .rs-layout-expansive .rs-picker { width:100%; }
 .rs-layout-expansive .rsUrlShort { display:none; }
@@ -67,8 +73,16 @@
 .rs-run-status.error { color:#c2410c; } .rs-run-status.ok { color:var(--color-success, #6aa442); }
 .dark .rs-run-status.error { color:#fb923c; } .dark .rs-run-status.ok { color:var(--color-success, #6aa442); }
 .rs-free-note { margin-top:14px; opacity:.85; }
+.rs-confirm-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; z-index:10000; }
+.rs-confirm-box { background:#fff; color:#222; border-radius:12px; padding:20px 22px; max-width:calc(100% - 32px); box-shadow:0 8px 30px rgba(0,0,0,.25); font-size:16px; }
+.dark .rs-confirm-box { background:#1d2128; color:#eee; }
+.rs-confirm-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:16px; }
+.rs-confirm-actions button { border:1px solid rgba(127,127,127,.5); border-radius:8px; padding:7px 18px; font-size:15px; cursor:pointer; background:transparent; color:inherit; }
+.rs-confirm-actions .rs-confirm-yes { background:#2f6fde; border-color:#2f6fde; color:#fff; }
+.rs-confirm-actions .rs-confirm-yes:hover { background:#2558b8; }
 .rs-forget-key { background:none; border:0; padding:0; color:inherit; text-decoration:underline; cursor:pointer; font:inherit; opacity:.8; }
 .rs-key-state { opacity:.75; }
+.rs-key-field { margin:0; display:inline; }
 .rs-api-key input { padding:6px 8px; border-radius:8px; border:1px solid rgba(127,127,127,.4); background:transparent; color:inherit; width:260px; max-width:100%; }
 .rs-table-wrap { overflow-x:auto; }
 .rs-table { width:100%; border-collapse:collapse; font-size:14px; }
@@ -104,18 +118,28 @@
       note.style.display = limited ? 'block' : 'none';
       note.innerHTML = 'Without the Team Passphrase, you can run 1 model once per day. ' + moreRunsHtml();
     }
+    const stored = !!savedKey();
     const forget = document.querySelector('.rs-forget-key');
-    if (forget) forget.style.display = savedKey() ? 'inline' : 'none';
+    if (forget) forget.style.display = stored ? 'inline' : 'none';
+    // A working saved passphrase hides the field; one that isn't accepted stays visible to correct
+    const field = document.querySelector('.rs-api-key .rs-key-field');
+    if (field) field.style.display = stored && keyValid ? 'none' : '';
     const keyState = document.querySelector('.rs-key-state');
     if (keyState) {
-      const typed = document.querySelector('.rs-api-key input').value;
-      keyState.textContent = !typed ? '' : keyValid ? 'Passphrase accepted' : 'Passphrase not accepted';
+      const typed = keyInputEl() ? keyInputEl().value : '';
+      keyState.textContent = !typed ? '' : keyValid ? 'Passphrase saved in browser' : 'Passphrase not accepted';
     }
   }
 
-  // Ask the service whether the Team Passphrase in the field is valid
-  async function checkKey() {
-    const value = document.querySelector('.rs-api-key input').value.trim();
+  // The Team Passphrase input (its form also holds a hidden username input, so select it by class)
+  function keyInputEl() {
+    return document.querySelector('.rs-api-key .rs-key-input');
+  }
+
+  // Ask the service whether the Team Passphrase in the field is valid; with save, store it when it is
+  async function checkKey(save) {
+    const input = keyInputEl();
+    const value = input ? input.value.trim() : '';
     let valid = false;
     if (value) {
       try {
@@ -123,6 +147,7 @@
         valid = r.key === 'valid';
       } catch (e) {}
     }
+    if (save && valid) saveKey(value);
     keyValid = valid;
     keyChecked = true;
     applyKeyMode();
@@ -206,8 +231,8 @@
     const smote = (document.querySelector('#rsRunControls input[name="rs_smote"]:checked') || {}).value || '';
     const url = apiBase() + 'run' + (smote ? '?smote=' + smote : '');
     const headers = { 'Content-Type': 'text/yaml' };
-    const key = document.querySelector('.rs-api-key input');
-    if (key && key.value) headers['X-API-Key'] = key.value;
+    const key = keyInputEl();
+    if (key && key.value.trim()) headers['X-API-Key'] = key.value.trim();
 
     const button = document.querySelector('#rsRunControls .rs-run-button');
     button.disabled = true;
@@ -228,7 +253,7 @@
         const msg = escapeHtml((data.message || '').replace(/To run more,.*$/, '').trim());
         setStatus('', 'error', msg + ' ' + moreRunsHtml());
       } else if (resp.status === 401) {
-        setStatus('The Team Passphrase was not accepted. Check it, or choose Forget passphrase to run without one.', 'error');
+        setStatus('The Team Passphrase was not accepted. Check it, or choose Clear to run without one.', 'error');
       } else {
         setStatus(data.message || `Run failed (HTTP ${resp.status}).`, 'error');
       }
@@ -262,26 +287,46 @@
   <label><input type="radio" name="rs_smote" value="1"> With SMOTE</label>
 </div>
 <div class="rs-run-actions rs-api-key" style="display:none">
-  <label>Team Passphrase <input type="password" autocomplete="off" placeholder="Optional"></label>
+  <!-- Its own form, so a browser offering to save the passphrase doesn't pick up another field on the page
+       as the username. The hidden username field is blank (if a browser still fills one in, use a space). -->
+  <form class="rs-key-field" autocomplete="on">
+    <input type="text" name="username" autocomplete="username" value="" tabindex="-1" aria-hidden="true" style="display:none">
+    <label>Team Passphrase <input type="password" class="rs-key-input" name="realitystream-passphrase" autocomplete="current-password" placeholder="Optional"></label>
+  </form>
   <span class="rs-key-state"></span>
-  <button type="button" class="rs-forget-key" style="display:none">Forget passphrase</button>
+  <button type="button" class="rs-forget-key" style="display:none">Clear</button>
 </div>
 <div class="rs-free-note" style="display:none"></div>
 <div class="rs-run-actions">
-  <button type="button" class="rs-run-button">Run Models</button>
+  <button type="button" class="rs-run-button rs-btn-shape">Run Models</button>
   <span class="rs-run-status"></span>
 </div>
 <div class="rs-report-dest">Report uploads (<code>/run?upload=1</code> with the Team Passphrase) go to GitHub
   <a href="https://github.com/modelearth/reports" target="_blank" rel="noopener">modelearth/reports</a>, in a <code>{year}/run-{date-time}</code> folder.</div>`;
     controls.querySelector('.rs-run-button').addEventListener('click', runModels);
-    const keyInput = controls.querySelector('.rs-api-key input');
+    const keyInput = controls.querySelector('.rs-key-input');
     keyInput.value = savedKey();
-    // Remember a typed key in this browser, then check it
-    keyInput.addEventListener('change', () => { saveKey(keyInput.value.trim()); checkKey(); });
+    // Check the passphrase and save it in this browser when valid: on paste, on Enter, and when the field
+    // changes. Enter is handled on the input itself, because the form also holds the hidden username
+    // field and so doesn't submit on Enter.
+    const storeKey = () => checkKey(true);
+    keyInput.addEventListener('change', storeKey);
+    keyInput.addEventListener('paste', () => setTimeout(storeKey, 0)); // after the pasted text is in the field
+    keyInput.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      storeKey();
+    });
+    controls.querySelector('.rs-key-field').addEventListener('submit', e => {
+      e.preventDefault();
+      storeKey();
+    });
     controls.querySelector('.rs-forget-key').addEventListener('click', () => {
-      saveKey('');
-      keyInput.value = '';
-      checkKey();
+      rsConfirm('Delete your saved passphrase?', () => {
+        saveKey('');
+        keyInput.value = '';
+        checkKey(false);
+      });
     });
     // Move the Team Passphrase field into #rsApiKey (the Models panel) once the models picker has drawn it
     const keyRow = controls.querySelector('.rs-api-key');
@@ -298,7 +343,25 @@
       $('rsResults').style.display = 'none';
     }
     initLayoutSwitch();
-    refreshUsage().then(checkKey);
+    refreshUsage().then(() => checkKey(false));
+  }
+
+  // In-page confirmation with Yes / No buttons (instead of the browser's confirm dialog)
+  function rsConfirm(message, onYes) {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'rs-confirm-backdrop';
+    backdrop.innerHTML = '<div class="rs-confirm-box" role="dialog" aria-modal="true">'
+      + '<div class="rs-confirm-message"></div><div class="rs-confirm-actions">'
+      + '<button type="button" class="rs-confirm-yes">Yes</button><button type="button" class="rs-confirm-no">No</button></div></div>';
+    backdrop.querySelector('.rs-confirm-message').textContent = message;
+    const close = () => { backdrop.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = e => { if (e.key === 'Escape') close(); };
+    backdrop.querySelector('.rs-confirm-yes').addEventListener('click', () => { close(); onYes(); });
+    backdrop.querySelector('.rs-confirm-no').addEventListener('click', close);
+    backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(backdrop);
+    backdrop.querySelector('.rs-confirm-no').focus();
   }
 
   const LAYOUT_STORE = 'realitystreamLayout';

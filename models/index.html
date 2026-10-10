@@ -23,7 +23,8 @@
 .dark .rs-panel { background:#1d2128; box-shadow:none; }
 .rs-panel h2 { font-size:18px; margin:0 0 12px; }
 .rs-label { font-weight:600; margin:16px 0 6px; }
-#parambase { padding:6px 8px; border-radius:8px; max-width:100%; }
+/* #parambase uses localsite's .ls-select (arrow kept clear of long text) and widens to its longest option */
+#parambase { max-width:100%; }
 /* Same YAML box as /realitystream/: localsite's .codetext plus these overrides */
 #paramText { font-size:0.9em; overflow:scroll !important; padding-top:0px; padding-bottom:0px; outline:none; }
 </style>
@@ -57,7 +58,7 @@ function redirectToMainPage() {
 
   <section class="rs-panel" data-rs-layout>
     <h2>Settings</h2>
-    <select id="parambase"></select>
+    <select id="parambase" class="ls-select"></select>
 
     <!-- Features and targets, updated as the YAML below is edited -->
     <div id="pathControls"></div>
@@ -83,7 +84,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const introButton = document.createElement('button');
   introButton.type = 'button';
   // localsite's .btn-clear: transparent with a border
-  introButton.className = 'btn btn-clear rs-intro-button';
+  introButton.className = 'btn btn-clear rs-btn-shape rs-intro-button';
   introButton.textContent = 'Intro';
   introButton.addEventListener('click', redirectToMainPage);
   runButton.parentElement.appendChild(introButton);
