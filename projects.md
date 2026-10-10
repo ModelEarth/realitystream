@@ -1,11 +1,7 @@
 ## Interactive UX
 
-To send parameters to the machine learning Colab notebook, we're building frontends for a backend Flask server.
-
 1. Frontend (JavaScript): A web-based interface that allows users to trigger actions and interact with the workflow.
-2. Backend (Flask or similar): A service to process requests from the frontend and execute the Colab notebook's logic.
-3. Colab Notebook: A machine learning notebook hosted in Google Colab or converted into an executable Python script for integration.
-
+2. Backend (local or Google CLoud Run): A service processes requests from the frontend and execute the python script.
 
 ## Projects
 
@@ -27,7 +23,7 @@ TODO: imblearn import for cuML - Check if already done.
 
 ### Updates made in 2025
 
-Aryaman P - Moved parameter textbox widget near top of colab and custom steps to Forest Canopy.
+Aryaman P - Moved parameter textbox widget near top of former colab and made updates for Forest Canopy data.
 
 Soham D - Repaired the Core GDC Data Function: Replaced the load_gdc_data_if_present function with a robust "V3" version that now correctly expands state geoIds into a full list of child counties and reliably pivots the data into the required wide format. - Soham 
 
