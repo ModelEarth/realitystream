@@ -28,7 +28,7 @@
 #paramText { font-size:0.9em; overflow:scroll !important; padding-top:0px; padding-bottom:0px; outline:none; }
 </style>
 <script>
-// Continue (beside Run Models) returns to RealityStream with the selected models in the hash
+// Intro (beside Run Models) returns to the RealityStream intro page with the selected models in the hash
 function redirectToMainPage() {
   const selected = RSModelSelect.selected();
   if (!selected.length) {
@@ -75,17 +75,18 @@ function redirectToMainPage() {
 <script src="../js/model-select.js"></script>
 <script src="../js/run-panel.js"></script>
 <script>
-// Continue (back to RealityStream with the selected models) at the far right of the Run button.
-// run-panel.js builds the Run button when the page has loaded, so add Continue after that.
+// Intro (back to RealityStream with the selected models) at the far right of the Run button.
+// run-panel.js builds the Run button when the page has loaded, so add Intro after that.
 document.addEventListener('DOMContentLoaded', () => {
   const runButton = document.querySelector('#rsRunControls .rs-run-button');
   if (!runButton) return;
-  const continueButton = document.createElement('button');
-  continueButton.type = 'button';
-  continueButton.className = 'rs-run-button rs-continue-button';
-  continueButton.textContent = 'Continue';
-  continueButton.addEventListener('click', redirectToMainPage);
-  runButton.parentElement.appendChild(continueButton);
+  const introButton = document.createElement('button');
+  introButton.type = 'button';
+  // localsite's .btn-clear: transparent with a border
+  introButton.className = 'btn btn-clear rs-intro-button';
+  introButton.textContent = 'Intro';
+  introButton.addEventListener('click', redirectToMainPage);
+  runButton.parentElement.appendChild(introButton);
 });
 
 // The README's intro and closing text surround the settings; its model sections are in the picker

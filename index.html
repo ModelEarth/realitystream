@@ -74,6 +74,7 @@ loadScript(externalSite + '/cloud/run/js/param-input.js', function() {
   overflow: scroll !important;
   padding-top: 0px;
   padding-bottom: 0px;
+  margin-bottom: 8px;
 }
 button {
   background-color: #375a7f;
@@ -85,6 +86,16 @@ button {
   cursor: pointer;
   border-radius: 4px;
   white-space: nowrap;
+}
+/* Same blue and shape as the Run button on models/ */
+button.rs-continue-models {
+  background-color: #2f6fde;
+  border-radius: 8px;
+  padding: 10px 22px;
+  font-size: 16px;
+}
+button.rs-continue-models:hover {
+  background-color: #2558b8;
 }
 
 </style>
@@ -132,10 +143,7 @@ loadMarkdown("projects.md", "proj", "_parent");
 <a href="/projects">Active Projects</a>
 <h1>RealityStream</h1>
 
-<a href="input/industries/">Run in colab</a> or <a href="../cloud/run/">run locally</a><br><br>
-
-Scroll to the bottom for a list of RealityStream <a href="#projects">projects</a>.<br>
-View <a href="../reports/">Report Output</a> (Under Development) - View <a href="../reports/2025/eye-blinks-rbf-2025-10-30/">Eye Blink Detection sample report</a><br><br>
+<a href="models">Run Models</a>
 
 <select id="parambase"></select><br>
 
@@ -157,7 +165,8 @@ targets:
 models: xgboost
 </pre>
 </div>
-Edit your yaml above and paste into our <a href="input/industries/">Run Models CoLab</a>.<br><br>
+<!-- Continue carries the parameter base, features, targets, models and YAML edits (via the hash) to models/ -->
+<button type="button" class="rs-continue-models" onclick="goToPage('/realitystream/models')">Continue</button><br><br>
 
 
   <div id="aboutDiv"></div>

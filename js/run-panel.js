@@ -51,9 +51,9 @@
 .rs-run-button { background:#2f6fde; color:#fff; border:0; border-radius:8px; padding:10px 22px; font-size:16px; cursor:pointer; }
 .rs-run-button:disabled { opacity:.6; cursor:default; }
 .rs-run-button:hover:not(:disabled) { background:#2558b8; }
-/* Green and hover from localsite's .btn-success (--color-success), with its values as fallbacks */
-.rs-run-button.rs-continue-button { margin-left:auto; background:var(--color-success, #6aa442); }
-.rs-run-button.rs-continue-button:hover:not(:disabled) { background:var(--color-success-hover, #5a8d38); }
+/* A page's extra button at the far right of the Run row (Intro on realitystream/models/, which uses
+   localsite's transparent .btn-clear); same size and shape as the Run button */
+.rs-intro-button { margin-left:auto; border-radius:8px; padding:9px 22px; font-size:16px; cursor:pointer; }
 .rs-layout-switch { margin-left:auto; display:inline-flex; border:1px solid rgba(127,127,127,.35); border-radius:8px; overflow:hidden; font-size:13px; font-weight:400; }
 .rs-layout-switch button { background:transparent; color:inherit; border:0; padding:4px 12px; cursor:pointer; font:inherit; }
 .rs-layout-switch button[aria-pressed="true"] { background:#2f6fde; color:#fff; }
