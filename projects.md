@@ -1,7 +1,7 @@
 ## Interactive UX
 
 1. Frontend (JavaScript): A web-based interface that allows users to trigger actions and interact with the workflow.
-2. Backend (local or Google CLoud Run): A service processes requests from the frontend and execute the python script.
+2. Backend (local or Google Cloud Run): A service processes requests from the frontend and execute the python script.
 
 ## Projects
 

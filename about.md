@@ -74,7 +74,7 @@ Example of parameters.yaml format:
 	python Run-Models-bkup.ipynb [features] [target] [models]
 -->
 
-Each target dataset will contain 2 columns.  
+Each target dataset contain 2 columns. We also support target columns in the features dataset.  
 1. The location column with one of the following column names:  
 Country (2-char), State (2-char), Fips (5-digits for state and county), Zip (5 char, 6 in China), or Voxel (2 char)
 2. The "Target" column containing 1 or 0
