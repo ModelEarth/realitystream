@@ -1,7 +1,15 @@
 ## Run Models CoLab
 
-- [Run Models (CoLab)](input/industries) - For features and targets merged on their location columns.
-- [Models Overview](models)
+- [Run Models with Google Cloud](models)
+- [Old Run Models (CoLab)](input/industries)
+
+### Eye Blinks Report Examples
+
+Reports are automatically sent to GitHub for storage
+
+- [Eye Blink Detection - Feature Importance Analysis](https://akhilaguska27.github.io/reports/2025/eye-blinks-rbf-2025-10-30/)
+- [Eye Blink Detection - Model Winner: Random Bits Forest (rbf)](https://model.earth/reports/2025/eye-blinks-all-models-2025-11-06/)
+
 
 In Run Models, the "features" dataset is merged with a 2-column "targets" dataset on-the-fly using either .csv files or Pandas to avoid storing merged .csv files. The location column joins features and targets.
 
