@@ -16,26 +16,16 @@ Update related .ipynb and app.py file to also add your name.
 1. DONE: Generate features-importance reports for available models - Melody and Yogesh.
 2. DONE: Add a comparison process for accuracy reports into one table for viewing. - Melody
 3. DONE: Frontend UX for selecting Features and Targets - Kashmira
-4. TO DO: Send files from local python backup to Github (See run_models_cli.py and run_models.py and most recently admin/run_models.py) <!-- Sampreethi -->
+4. TO DO: Send files from local python backup to Github (See run_models_cli.py and run_models.py and most recently admin/run_models.py)
+5. PARTIALLY DONE: Add output files to the "[report](https://github.com/ModelEarth/reports/)" folder and add smart formatting in the index.html and javascript report display. We send it's content to GitHub as a final step in run_models.py.
 
-Additional TO DO's reside at the top of the [Run Models colab](https://colab.research.google.com/drive/1zu0WcCiIJ5X3iN1Hd1KSW4dGn0JuodB8?usp=sharing).
-
-
-## Contribute to our Run Models Colab
-
-[Run Models Colab](input/industries/)
-
-PARTIALLY DONE: Add output files to the "[report](https://github.com/ModelEarth/reports/)" folder and add smart formatting in the index.html and javascript report display. We send it's content to GitHub in a step toward the end.
-
-IN PROGRESS: Creating install for Flask application with Google Cloud Run cmds at [github.com/modelearth/cloud](https://github.com/modelearth/cloud)
-
-TO DO: More item are on our [RealityStream project list](https://github.com/modelearth/projects/issues/63)
+Additional items in our [RealityStream project list](https://github.com/modelearth/projects/issues/63)
 
 <!--
 TODO: imblearn import for cuML - Check if already done.
 -->
 
-### October 2025
+### Updates made in 2025
 
 Aryaman P - Moved parameter textbox widget near top of colab and custom steps to Forest Canopy.
 
@@ -44,8 +34,6 @@ Soham D - Repaired the Core GDC Data Function: Replaced the load_gdc_data_if_pre
 Soham D - Resolved Data Mismatch Bugs: Implemented a fix in the data loading cell to standardize FIPS codes to a 5-digit string format across all data sources, solving the merge failures.
 
 Soham D - Resolved Machine Learning Model Bugs: Fixed a ValueError in SMOTE by setting k_neighbors=4 to handle the small minority class in the training data, and resolved a AttributeError by making the feature importance extraction compatible with both cuML and scikit-learn model objects.
-
-### September 2025 and prior
 
 DONE: Include the time it took to run each model in report.md. - TARUN
 
