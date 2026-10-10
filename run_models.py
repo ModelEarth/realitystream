@@ -23,6 +23,7 @@ automation/paths.yaml in the webroot. The whole env file is never loaded.
 
 import argparse
 import csv
+import json
 import os
 import platform
 import re
@@ -520,15 +521,34 @@ def _param_grid(key, n_iter, rng):
     return None
 
 
-def train_models(X_train, y_train, X_test, y_test, keys, random_state=RANDOM_STATE, n_iter=20):
-    """Train each requested model; return a list of result dicts (same fields as the colab)."""
-    from sklearn.metrics import accuracy_score, classification_report, roc_auc_score
+# Models whose features must be standardized before fitting (distance/gradient based).
+SCALE_SENSITIVE = {"lr", "svm", "mlp"}
+
+
+def train_models(X_train, y_train, X_test, y_test, keys, random_state=RANDOM_STATE, n_iter=20, smote=False):
+    """Train each requested model; return a list of result dicts (same fields as the colab).
+
+    Scaling (lr/svm/mlp) and SMOTE are fit on training data only. When a hyperparameter search
+    runs they are imblearn Pipeline steps (grid keys prefixed ``model__``), so each CV fold fits
+    them on its own training part; otherwise they are applied to the training split directly, which
+    is leak-free as there is no CV there. Returns ``[]`` when SMOTE is requested but a class has
+    fewer than 2 rows.
+    """
+    from imblearn.over_sampling import SMOTE
+    from imblearn.pipeline import Pipeline as ImbPipeline
+    from sklearn.metrics import accuracy_score, balanced_accuracy_score, classification_report, roc_auc_score
     from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold
+    from sklearn.preprocessing import StandardScaler
 
     X_train, X_test = X_train.fillna(0), X_test.fillna(0)
     y_train_np, y_test_np = np.asarray(y_train).ravel(), np.asarray(y_test).ravel()
     class_counts = pd.Series(y_train_np).value_counts()
+    if smote and (len(class_counts) < 2 or class_counts.min() < 2):
+        print("  [WARN] SMOTE needs two classes with at least 2 samples each; skipping this pass.")
+        return []
     can_search = len(class_counts) > 1 and class_counts.min() >= 5
+    binary = len(class_counts) == 2
+    smote_k = min(5, int(class_counts.min()) - 1) if smote else None
     rng = np.random.default_rng(random_state)
     gpu = gpu_enabled()
     results = []
@@ -540,28 +560,49 @@ def train_models(X_train, y_train, X_test, y_test, keys, random_state=RANDOM_STA
             print(f"  [WARN] Skipping {key}: {exc}")
             continue
         print(f"\n[MODEL] Training {MODEL_TITLES[key]} ({key})...")
+        scale = key in SCALE_SENSITIVE
         start = time.time()
         try:
             grid = _param_grid(key, n_iter, rng)
             if grid and can_search:
+                # Scaling and SMOTE as pipeline steps: each CV fold fits them on its own training part.
+                steps = []
+                if scale:
+                    steps.append(("scaler", StandardScaler()))
+                if smote:
+                    steps.append(("smote", SMOTE(random_state=random_state, k_neighbors=smote_k)))
+                steps.append(("model", model))
+                pipe = ImbPipeline(steps)
                 search = RandomizedSearchCV(
-                    model, param_distributions=grid, n_iter=n_iter,
+                    pipe, param_distributions={f"model__{k}": v for k, v in grid.items()}, n_iter=n_iter,
                     cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=random_state),
-                    scoring="accuracy", n_jobs=-1, random_state=random_state,
+                    scoring="roc_auc" if binary else "accuracy", n_jobs=-1, random_state=random_state,
                 )
                 search.fit(X_train, y_train_np)
-                model = search.best_estimator_
-                Xte = X_test
-            elif gpu and key in ("rfc", "lr", "svm"):
-                import cudf
-                import cupy as cp
-                model.fit(cudf.DataFrame.from_pandas(X_train), cp.asarray(y_train_np))
-                Xte = cudf.DataFrame.from_pandas(X_test)
+                fitted = search.best_estimator_
+                best_model = fitted.named_steps["model"]  # final estimator, so feature_importances still works
+                y_pred = np.asarray(to_cpu(fitted.predict(X_test))).ravel()
+                y_prob = np.asarray(to_cpu(fitted.predict_proba(X_test))) if hasattr(fitted, "predict_proba") else None
             else:
-                model.fit(X_train, y_train_np)
-                Xte = X_test
-            y_pred = np.asarray(to_cpu(model.predict(Xte))).ravel()
-            y_prob = np.asarray(to_cpu(model.predict_proba(Xte))) if hasattr(model, "predict_proba") else None
+                # No search, so no CV here: scale and SMOTE the training split directly (leak-free).
+                X_tr, X_te, y_tr = X_train, X_test, y_train_np
+                if scale:
+                    scaler = StandardScaler()
+                    X_tr = pd.DataFrame(scaler.fit_transform(X_tr), columns=X_train.columns, index=X_train.index)
+                    X_te = pd.DataFrame(scaler.transform(X_te), columns=X_test.columns, index=X_test.index)
+                if smote:
+                    X_tr, y_tr = SMOTE(random_state=random_state, k_neighbors=smote_k).fit_resample(X_tr, y_tr)
+                if gpu and key in ("rfc", "lr", "svm"):
+                    import cudf
+                    import cupy as cp
+                    model.fit(cudf.DataFrame.from_pandas(pd.DataFrame(X_tr).reset_index(drop=True)),
+                              cp.asarray(np.asarray(y_tr)))
+                    X_te = cudf.DataFrame.from_pandas(X_te)
+                else:
+                    model.fit(X_tr, y_tr)
+                best_model = model
+                y_pred = np.asarray(to_cpu(model.predict(X_te))).ravel()
+                y_prob = np.asarray(to_cpu(model.predict_proba(X_te))) if hasattr(model, "predict_proba") else None
         except Exception as exc:
             print(f"  [WARN] {key} failed: {exc}")
             continue
@@ -569,23 +610,24 @@ def train_models(X_train, y_train, X_test, y_test, keys, random_state=RANDOM_STA
 
         report = classification_report(y_test_np, y_pred, output_dict=True, zero_division=0)
         two_classes = len(np.unique(y_test_np)) > 1
-        roc = roc_auc_score(y_test_np, y_prob[:, 1]) if (y_prob is not None and two_classes) else 0.0
+        roc = roc_auc_score(y_test_np, y_prob[:, 1]) if (y_prob is not None and two_classes) else None
         pos = report.get("1", {})
         gmean = (report["0"]["recall"] * report["1"]["recall"]) ** 0.5 if ("0" in report and "1" in report) else 0.0
         result = {
             "model_type": key,
-            "best_model": model,
+            "best_model": best_model,
             "accuracy": round(accuracy_score(y_test_np, y_pred), 4),
-            "roc_auc": round(roc, 4),
+            "roc_auc": None if roc is None else round(roc, 4),
             "gmean": round(gmean, 4),
             "precision": round(pos.get("precision", 0.0), 4),
             "recall": round(pos.get("recall", 0.0), 4),
             "f1_score": round(pos.get("f1-score", 0.0), 4),
+            "balanced_accuracy": round(balanced_accuracy_score(y_test_np, y_pred), 4),
             "time": round(elapsed, 2),
             "classification_report": report,
         }
         print(f"  Accuracy {result['accuracy']}  ROC-AUC {result['roc_auc']}  F1 {result['f1_score']}  "
-              f"G-Mean {result['gmean']}  ({result['time']}s)")
+              f"Balanced-Acc {result['balanced_accuracy']}  ({result['time']}s)")
         results.append(result)
     return results
 
@@ -639,7 +681,8 @@ def feature_importances(results, feature_names, map_naics=False):
 # Report folder and upload
 # ---------------------------------------------------------------------------
 
-REPORT_COLUMNS = ["Model", "Accuracy", "ROC_AUC", "F1_Score", "Precision", "Recall", "GMean", "Training_Time_Seconds"]
+REPORT_COLUMNS = ["Model", "Accuracy", "ROC_AUC", "F1_Score", "Precision", "Recall", "GMean",
+                  "Training_Time_Seconds", "Balanced_Accuracy", "Lift_Over_Baseline"]
 
 
 def results_table(results):
@@ -647,6 +690,7 @@ def results_table(results):
         "Model": r["model_type"], "Accuracy": r["accuracy"], "ROC_AUC": r["roc_auc"],
         "F1_Score": r["f1_score"], "Precision": r["precision"], "Recall": r["recall"],
         "GMean": r["gmean"], "Training_Time_Seconds": r["time"],
+        "Balanced_Accuracy": r.get("balanced_accuracy"), "Lift_Over_Baseline": r.get("lift_over_baseline"),
     } for r in results], columns=REPORT_COLUMNS)
 
 
@@ -724,13 +768,52 @@ def summarize(results):
     return [{k: v for k, v in r.items() if k != "best_model"} for r in results]
 
 
+def split_data(X, y, test_size=0.2, random_state=RANDOM_STATE):
+    """Train/test split: stratified when every class has >= 2 rows, else unstratified with a
+    warning. Also warns on a tiny dataset (< 100 rows) and on a single-class test set."""
+    from sklearn.model_selection import train_test_split
+
+    if len(X) < 100:
+        print(f"  [WARN] Only {len(X)} rows; model estimates will be unstable.")
+    counts = pd.Series(np.asarray(y).ravel()).value_counts()
+    stratify = y if (len(counts) >= 2 and int(counts.min()) >= 2) else None
+    if stratify is None:
+        print("  [WARN] Not every class has >= 2 rows; splitting without stratification.")
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=random_state, stratify=stratify)
+    if len(np.unique(np.asarray(y_test).ravel())) < 2:
+        print("  [WARN] Test set has a single class; ROC-AUC is undefined and reported as None.")
+    return X_train, X_test, y_train, y_test
+
+
+def majority_baseline(y_train, y_test):
+    """Scores for always predicting the training-majority class: accuracy, balanced accuracy, class."""
+    from sklearn.metrics import accuracy_score, balanced_accuracy_score
+
+    y_train_np, y_test_np = np.asarray(y_train).ravel(), np.asarray(y_test).ravel()
+    majority = pd.Series(y_train_np).value_counts().idxmax()
+    pred = np.full(len(y_test_np), majority)
+    return {
+        "accuracy": round(accuracy_score(y_test_np, pred), 4),
+        "balanced_accuracy": round(balanced_accuracy_score(y_test_np, pred), 4),
+        "majority_class": int(majority) if np.issubdtype(np.asarray(majority).dtype, np.number) else str(majority),
+    }
+
+
+def _apply_lift(results, baseline):
+    """Set lift_over_baseline (balanced accuracy minus the baseline's) on each result; warn when <= 0."""
+    for r in results:
+        lift = round(r["balanced_accuracy"] - baseline["balanced_accuracy"], 4)
+        r["lift_over_baseline"] = lift
+        if lift <= 0:
+            print(f"  [WARN] {r['model_type']} balanced-accuracy lift over baseline is {lift} (<= 0).")
+
+
 def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=20, smote=None):
     """Load params -> fetch data -> train (plain and SMOTE) -> write report folder -> optional upload.
 
     smote: None trains both without and with SMOTE, False only without, True only with.
     """
-    from sklearn.model_selection import train_test_split
-
     print("=" * 60 + "\n  RealityStream Run Models\n" + "=" * 60)
     params = load_parameters(yaml_path)
     param = DictToObject(OrderedDict(params))
@@ -739,18 +822,23 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=20, smote=
 
     print("\n[DATA] Loading...")
     X, y = load_data(param)
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=RANDOM_STATE)
+    X_train, X_test, y_train, y_test = split_data(X, y)
     print(f"  Train: {len(X_train)} rows   Test: {len(X_test)} rows   Features: {X.shape[1]}")
+
+    baseline = majority_baseline(y_train, y_test)
+    print(f"  Baseline (predict {baseline['majority_class']}): accuracy {baseline['accuracy']}  "
+          f"balanced_acc {baseline['balanced_accuracy']}")
 
     results_no_smote, results_smote = [], []
     if smote is not True:
         print("\n[TRAIN] Without SMOTE")
-        results_no_smote = train_models(X_train, y_train, X_test, y_test, keys, n_iter=n_iter)
+        results_no_smote = train_models(X_train, y_train, X_test, y_test, keys, n_iter=n_iter, smote=False)
+        _apply_lift(results_no_smote, baseline)
 
     if smote is not False:
         print("\n[TRAIN] With SMOTE")
-        X_sm, y_sm = apply_smote(X_train, y_train)
-        results_smote = train_models(X_sm, y_sm, X_test, y_test, keys, n_iter=n_iter) if X_sm is not None else []
+        results_smote = train_models(X_train, y_train, X_test, y_test, keys, n_iter=n_iter, smote=True)
+        _apply_lift(results_smote, baseline)
 
     map_naics = "naics" in str(getattr(param.features, "path", ""))
     importances = feature_importances(results_smote or results_no_smote, list(X.columns), map_naics)
@@ -763,6 +851,7 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=20, smote=
     return {
         "folder": params.get("folder"),
         "report_dir": os.path.abspath(report_dir),
+        "baseline": baseline,
         "no_smote": summarize(results_no_smote),
         "smote": summarize(results_smote),
         "feature_importance": {k: v.head(20).to_dict(orient="records") for k, v in importances.items()},
