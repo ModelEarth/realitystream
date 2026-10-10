@@ -23,6 +23,7 @@ automation/paths.yaml in the webroot. The whole env file is never loaded.
 
 import argparse
 import csv
+import json
 import os
 import platform
 import re
