@@ -319,8 +319,10 @@ def load_gdc_data(param):
     return features_df, targets_df
 
 
-def load_data(param):
-    """Fetch and merge features + targets. Returns (X, y) with numeric X."""
+def load_data(param, return_groups=False):
+    """Fetch and merge features + targets. Returns (X, y) with numeric X, or (X, y, groups) when
+    return_groups is True. groups is the state FIPS (county join key // 1000) for group CV, or None
+    when it can't be derived (e.g. an inline target column with no join key)."""
     features_df, target_df = load_gdc_data(param)
 
     if features_df is None:
@@ -345,7 +347,8 @@ def load_data(param):
         col = inline_target if inline_target in features_df.columns else "y"
         if col not in features_df.columns:
             raise ValueError(f"Target column '{inline_target}' not in features and no targets.path given.")
-        return _numeric(features_df.drop(columns=[col])), features_df[col]
+        X_inline, y_inline = _numeric(features_df.drop(columns=[col])), features_df[col]
+        return (X_inline, y_inline, None) if return_groups else (X_inline, y_inline)
 
     if target_df is None:
         target_df = fetch_csv(target_path)
@@ -368,7 +371,12 @@ def load_data(param):
     if merged.empty:
         raise ValueError("Merge produced 0 rows. Check the common column values.")
     drop = {f_key, t_key, target_col}
-    return _numeric(merged.drop(columns=[c for c in drop if c in merged.columns])), merged[target_col]
+    X_merged, y_merged = _numeric(merged.drop(columns=[c for c in drop if c in merged.columns])), merged[target_col]
+    if return_groups:
+        # The join key was cast to str above; convert back to integer FIPS, then // 1000 for the state.
+        groups = (pd.to_numeric(merged[f_key], errors="coerce") // 1000).astype("Int64")
+        return X_merged, y_merged, groups
+    return X_merged, y_merged
 
 
 def _numeric(X):
@@ -809,10 +817,121 @@ def _apply_lift(results, baseline):
             print(f"  [WARN] {r['model_type']} balanced-accuracy lift over baseline is {lift} (<= 0).")
 
 
+CV_METRICS = ("roc_auc", "pr_auc", "balanced_accuracy", "f1_macro")
+CV_REPORT_COLUMNS = ["Model", "ROC_AUC_Mean", "ROC_AUC_Std", "PR_AUC_Mean", "PR_AUC_Std",
+                     "Balanced_Accuracy_Mean", "Balanced_Accuracy_Std", "F1_Macro_Mean", "F1_Macro_Std",
+                     "Lift_Over_Baseline"]
+
+
+def cv_results_table(results):
+    return pd.DataFrame([{
+        "Model": r["model"], "ROC_AUC_Mean": r["roc_auc_mean"], "ROC_AUC_Std": r["roc_auc_std"],
+        "PR_AUC_Mean": r["pr_auc_mean"], "PR_AUC_Std": r["pr_auc_std"],
+        "Balanced_Accuracy_Mean": r["balanced_accuracy_mean"], "Balanced_Accuracy_Std": r["balanced_accuracy_std"],
+        "F1_Macro_Mean": r["f1_macro_mean"], "F1_Macro_Std": r["f1_macro_std"],
+        "Lift_Over_Baseline": r.get("lift_over_baseline"),
+    } for r in results], columns=CV_REPORT_COLUMNS)
+
+
+def _cv_fold_scores(estimator, X_tr, y_tr, X_te, y_te):
+    """Fit on a fold's training rows, score on its held-out rows. ROC/PR are nan if the fold is single-class."""
+    from sklearn.metrics import average_precision_score, balanced_accuracy_score, f1_score, roc_auc_score
+
+    estimator.fit(X_tr, y_tr)
+    y_pred = np.asarray(to_cpu(estimator.predict(X_te))).ravel()
+    scores = {"roc_auc": np.nan, "pr_auc": np.nan,
+              "balanced_accuracy": balanced_accuracy_score(y_te, y_pred),
+              "f1_macro": f1_score(y_te, y_pred, average="macro", zero_division=0)}
+    classes = getattr(estimator, "classes_", np.unique(y_tr))
+    if len(np.unique(y_te)) > 1 and len(classes) == 2 and hasattr(estimator, "predict_proba"):
+        proba = np.asarray(to_cpu(estimator.predict_proba(X_te)))[:, 1]
+        scores["roc_auc"] = roc_auc_score(y_te, proba)
+        scores["pr_auc"] = average_precision_score(y_te, proba)
+    return scores
+
+
+def _cv_pipeline(key, random_state, smote_k):
+    """Fixed-setting estimator for CV: scaler (lr/svm/mlp) + optional SMOTE + model, no nested search."""
+    from imblearn.over_sampling import SMOTE
+    from imblearn.pipeline import Pipeline as ImbPipeline
+    from sklearn.preprocessing import StandardScaler
+
+    steps = []
+    if key in SCALE_SENSITIVE:
+        steps.append(("scaler", StandardScaler()))
+    if smote_k is not None:
+        steps.append(("smote", SMOTE(random_state=random_state, k_neighbors=smote_k)))
+    steps.append(("model", make_model(key, random_state)))
+    return ImbPipeline(steps)
+
+
+def cross_validate_models(X, y, groups, keys, folds=5, cv="stratified", random_state=RANDOM_STATE):
+    """Cross-validate with fixed model settings (no nested search). Scaling and SMOTE are pipeline steps
+    fit per fold, so they never see held-out rows. cv is 'stratified' (StratifiedKFold over all rows) or
+    'group' (GroupKFold by state, falling back to stratified when there are fewer groups than folds).
+    Returns (results, cv_used): per-model fold mean/std for each metric plus baseline lift."""
+    from sklearn.dummy import DummyClassifier
+    from sklearn.model_selection import GroupKFold, StratifiedKFold
+
+    X = X.reset_index(drop=True).fillna(0)   # same imputation as train_models
+    y_np = np.asarray(y).ravel()
+    cv = str(cv).lower()
+    n_groups = len(pd.unique(pd.Series(groups).dropna())) if groups is not None else 0
+    if cv == "group" and n_groups < folds:
+        print(f"  [WARN] group CV needs >= {folds} groups (have {n_groups}); falling back to stratified.")
+        cv = "stratified"
+    if cv == "group":
+        splits = list(GroupKFold(n_splits=folds).split(X, y_np, np.asarray(pd.Series(groups).astype("float"))))
+    else:
+        splits = list(StratifiedKFold(n_splits=folds, shuffle=True, random_state=random_state).split(X, y_np))
+
+    def aggregate(name, make_estimator, use_smote):
+        fold_rows = []
+        for tr, te in splits:
+            y_tr = y_np[tr]
+            smote_k = None
+            if use_smote:
+                counts = pd.Series(y_tr).value_counts()
+                if len(counts) >= 2 and counts.min() >= 2:
+                    smote_k = min(5, int(counts.min()) - 1)
+            fold_rows.append(_cv_fold_scores(make_estimator(smote_k), X.iloc[tr], y_tr, X.iloc[te], y_np[te]))
+        agg = {"model": name}
+        for metric in CV_METRICS:
+            vals = np.array([f[metric] for f in fold_rows], dtype=float)
+            allnan = np.isnan(vals).all()
+            agg[f"{metric}_mean"] = None if allnan else round(float(np.nanmean(vals)), 4)
+            agg[f"{metric}_std"] = None if allnan else round(float(np.nanstd(vals)), 4)
+        return agg
+
+    results = [aggregate("MajorityBaseline", lambda sk: DummyClassifier(strategy="most_frequent"), use_smote=False)]
+    results[0]["lift_over_baseline"] = 0.0
+    base = results[0]["balanced_accuracy_mean"] or 0.0
+    print(f"\n[CV {cv}, {folds} folds] MajorityBaseline  balanced_acc {results[0]['balanced_accuracy_mean']}")
+    for key in keys:
+        try:
+            make_model(key, random_state)
+        except Exception as exc:
+            print(f"  [WARN] Skipping {key}: {exc}")
+            continue
+        try:
+            agg = aggregate(key, lambda sk, key=key: _cv_pipeline(key, random_state, sk), use_smote=True)
+        except Exception as exc:
+            print(f"  [WARN] {key} failed: {exc}")
+            continue
+        agg["lift_over_baseline"] = round((agg["balanced_accuracy_mean"] or 0.0) - base, 4)
+        results.append(agg)
+        print(f"  {key}: roc_auc {agg['roc_auc_mean']}±{agg['roc_auc_std']}  pr_auc {agg['pr_auc_mean']}±{agg['pr_auc_std']}  "
+              f"bal_acc {agg['balanced_accuracy_mean']}±{agg['balanced_accuracy_std']}  "
+              f"f1 {agg['f1_macro_mean']}±{agg['f1_macro_std']}  lift {agg['lift_over_baseline']}")
+    return results, cv
+
+
 def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=20, smote=None):
     """Load params -> fetch data -> train (plain and SMOTE) -> write report folder -> optional upload.
 
     smote: None trains both without and with SMOTE, False only without, True only with.
+    An optional ``evaluation:`` block in the YAML adds k-fold cross-validation (``model_performance_cv.csv``
+    and the "cv" return key); the existing report files and behaviour are unchanged when it is absent.
     """
     print("=" * 60 + "\n  RealityStream Run Models\n" + "=" * 60)
     params = load_parameters(yaml_path)
@@ -820,8 +939,13 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=20, smote=
     keys = params["models"] or ["rfc"]
     print(f"[PARAMS] {yaml_path}\n   folder: {params.get('folder', 'N/A')}   models: {keys}   gpu: {gpu_enabled()}")
 
+    evaluation = params.get("evaluation") or {}
     print("\n[DATA] Loading...")
-    X, y = load_data(param)
+    if evaluation:
+        X, y, groups = load_data(param, return_groups=True)
+    else:
+        X, y = load_data(param)
+        groups = None
     X_train, X_test, y_train, y_test = split_data(X, y)
     print(f"  Train: {len(X_train)} rows   Test: {len(X_test)} rows   Features: {X.shape[1]}")
 
@@ -846,9 +970,17 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=20, smote=
     setup_report_folder(report_dir)
     write_reports(report_dir, params, results_no_smote, results_smote, importances)
 
+    cv = None
+    if evaluation:
+        folds = int(evaluation.get("folds", 5))
+        cv_results, cv_used = cross_validate_models(X, y, groups, keys,
+                                                    folds=folds, cv=evaluation.get("cv", "stratified"))
+        cv_results_table(cv_results).to_csv(os.path.join(report_dir, "model_performance_cv.csv"), index=False)
+        cv = {"mode": cv_used, "folds": folds, "results": cv_results}
+
     uploaded = upload_reports(report_dir) if upload else None
     print("\n[DONE]")
-    return {
+    summary = {
         "folder": params.get("folder"),
         "report_dir": os.path.abspath(report_dir),
         "baseline": baseline,
@@ -857,6 +989,9 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=20, smote=
         "feature_importance": {k: v.head(20).to_dict(orient="records") for k, v in importances.items()},
         "uploaded_to": uploaded,
     }
+    if cv is not None:
+        summary["cv"] = cv
+    return summary
 
 
 def main():
