@@ -91,6 +91,16 @@ Model keys for the YAML `models` list: `lr`, `rfc`, `rbf`, `svm`, `mlp`, `xgboos
 
 `report/` contains `model_performance_report_no_smote.csv`, `model_performance_report_smote.csv`, `feature_importance_xgboost.csv`, `parameters.yaml`, `model-options.csv`, `README.md` and `index.html`.
 
+### Cross-validation (optional)
+
+Add an `evaluation:` block to the parameters YAML to also score with k-fold cross-validation. Omit it and the run is unchanged.
+
+    evaluation:
+      cv: stratified   # or: group
+      folds: 5
+
+`stratified` uses `StratifiedKFold(shuffle=True)` over all rows. `group` uses `GroupKFold` with each county's **state** (FIPS // 1000) as the group, so whole states are held out — this exposes geographic leakage (state-held-out scores sit below stratified); with fewer groups than folds it falls back to `stratified`. Scaling and SMOTE are fit inside each fold (fixed model settings, no nested search, to stay within the Cloud Run cost cap). Results — fold mean ± std for ROC-AUC, PR-AUC, balanced accuracy and macro F1, plus baseline lift — go to `model_performance_cv.csv` and the `"cv"` key of the run summary; the existing report files are untouched.
+
 ### Keys
 
 Settings are read one name at a time: first from the environment, then from the env file named by `automation/paths.yaml` in the [webroot](https://model.earth/webroot). The whole file is never loaded.

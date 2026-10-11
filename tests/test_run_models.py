@@ -142,6 +142,103 @@ def test_baseline_lift_and_csv_header(tmp_path, monkeypatch):
         assert next(_csv.reader(fh)) == rm.REPORT_COLUMNS
 
 
+def _grouped(n_per_group=40, n_groups=6, seed=0):
+    """Grouped data: each group (state) carries its own signal shift, so the group matters."""
+    rng = np.random.default_rng(seed)
+    frames, ys, gs = [], [], []
+    for g in range(n_groups):
+        base = rng.normal(loc=g * 0.4, scale=1.0, size=n_per_group)
+        frames.append(pd.DataFrame({"f1": base, "f2": rng.normal(size=n_per_group)}))
+        ys.append((base + rng.normal(scale=0.5, size=n_per_group) > g * 0.4).astype(int))
+        gs.append(np.full(n_per_group, g))
+    return (pd.concat(frames, ignore_index=True), pd.Series(np.concatenate(ys)), pd.Series(np.concatenate(gs)))
+
+
+def test_load_data_return_groups_is_state_fips(monkeypatch):
+    features = pd.DataFrame({"Fips": ["1001", "1003", "6001", "6003"], "Emp-1": [1.0, 2.0, 3.0, 4.0]})
+    targets = pd.DataFrame({"Fips": ["1001", "1003", "6001", "6003"], "Target": [0, 1, 0, 1]})
+    param = rm.DictToObject({"features": {"path": "https://x/data.csv", "common": "Fips"},
+                             "targets": {"path": "https://x/t.csv", "common": "Fips"}})
+    monkeypatch.setattr(rm, "fetch_csv", lambda url: features if "data" in url else targets)
+    X, y, groups = rm.load_data(param, return_groups=True)
+    assert [int(g) for g in groups] == [1, 1, 6, 6]           # county FIPS // 1000 == state
+    assert len(rm.load_data(param)) == 2                      # default call still returns (X, y)
+
+
+def test_cv_fold_count_and_default_stratified():
+    X, y, groups = _grouped()
+    calls = []
+    import run_models as _rm
+    orig = _rm._cv_fold_scores
+    try:
+        _rm._cv_fold_scores = lambda *a: (calls.append(1) or
+            {"roc_auc": 0.5, "pr_auc": 0.5, "balanced_accuracy": 0.5, "f1_macro": 0.5})
+        results, cv_used = _rm.cross_validate_models(X, y, groups, ["lr"], folds=4, cv="stratified")
+    finally:
+        _rm._cv_fold_scores = orig
+    assert cv_used == "stratified"
+    assert len(calls) == (1 + 1) * 4                          # (baseline + 1 model) x folds
+    assert results[0]["model"] == "MajorityBaseline"
+
+
+def test_cv_group_folds_hold_whole_states_out():
+    X, y, groups = _grouped(n_groups=6)
+    seen = []
+    import run_models as _rm
+    orig = _rm._cv_fold_scores
+
+    def spy(estimator, X_tr, y_tr, X_te, y_te):
+        seen.append((set(groups.iloc[list(X_tr.index)]), set(groups.iloc[list(X_te.index)])))
+        return {"roc_auc": 0.5, "pr_auc": 0.5, "balanced_accuracy": 0.5, "f1_macro": 0.5}
+
+    try:
+        _rm._cv_fold_scores = spy
+        _, cv_used = _rm.cross_validate_models(X, y, groups, ["lr"], folds=3, cv="group")
+    finally:
+        _rm._cv_fold_scores = orig
+    assert cv_used == "group" and seen
+    for train_g, test_g in seen:
+        assert train_g.isdisjoint(test_g)                    # no state in both train and test
+
+
+def test_cv_group_falls_back_to_stratified():
+    X, y, groups = _grouped(n_per_group=60, n_groups=3)      # 3 groups < 5 folds
+    import run_models as _rm
+    orig = _rm._cv_fold_scores
+    try:
+        _rm._cv_fold_scores = lambda *a: {"roc_auc": 0.5, "pr_auc": 0.5, "balanced_accuracy": 0.5, "f1_macro": 0.5}
+        _, cv_used = _rm.cross_validate_models(X, y, groups, ["lr"], folds=5, cv="group")
+    finally:
+        _rm._cv_fold_scores = orig
+    assert cv_used == "stratified"
+
+
+def test_run_pipeline_absent_evaluation_matches_a1(tmp_path, monkeypatch):
+    X, y = _mixed_scale(n=200, minority=50, big=5.0)
+    monkeypatch.setattr(rm, "load_data", lambda param, return_groups=False: (X, y, None) if return_groups else (X, y))
+    monkeypatch.setattr(rm, "setup_report_folder", lambda d: os.makedirs(d, exist_ok=True))
+    params = tmp_path / "p.yaml"
+    params.write_text("folder: t\nfeatures:\n  path: x\nmodels: [lr]\n", encoding="utf-8")
+    out = rm.run_pipeline(str(params), report_dir=str(tmp_path / "r"), smote=False)
+    assert "cv" not in out
+    assert not (tmp_path / "r" / "model_performance_cv.csv").exists()
+
+
+def test_run_pipeline_with_evaluation_writes_cv(tmp_path, monkeypatch):
+    X, y, groups = _grouped(n_per_group=50, n_groups=6)
+    monkeypatch.setattr(rm, "load_data",
+                        lambda param, return_groups=False: (X, y, groups) if return_groups else (X, y))
+    monkeypatch.setattr(rm, "setup_report_folder", lambda d: os.makedirs(d, exist_ok=True))
+    params = tmp_path / "p.yaml"
+    params.write_text("folder: t\nfeatures:\n  path: x\nmodels: [lr]\nevaluation:\n  cv: stratified\n  folds: 5\n",
+                      encoding="utf-8")
+    out = rm.run_pipeline(str(params), report_dir=str(tmp_path / "r"), smote=False)
+    assert out["cv"]["mode"] == "stratified" and out["cv"]["folds"] == 5
+    import csv as _csv
+    with open(tmp_path / "r" / "model_performance_cv.csv", encoding="utf-8") as fh:
+        assert next(_csv.reader(fh)) == rm.CV_REPORT_COLUMNS
+
+
 def test_cli_writes_run_summary(tmp_path, monkeypatch):
     """main() must write run_summary.json end to end (regression for the missing `import json`)."""
     X, y = _data(n=60)
