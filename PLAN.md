@@ -41,7 +41,7 @@ browser --> cloud.model.earth --+-- /realitystream/*        static files from th
 
 ## Why the Worker cannot host the Python backend
 
-- CloudRoot deploys one Worker. Static files come from `worker/dist`, assembled from the webroot submodules by `scripts/build-static.mjs`. Only `/api/*` and `/sanity/*` reach Worker code, and that code is JavaScript (`worker/src/`).
+- CloudRoot deploys one Worker. Static files come from `worker/dist`, assembled from the webroot submodules by `scripts/build-static.mjs`. Only `/api/*` and `/ingest/*` reach Worker code, and that code is JavaScript (`worker/src/`).
 - Cloudflare's Python Workers run on Pyodide. Pure-Python packages work, but scikit-learn, XGBoost, imbalanced-learn and cuML are compiled, and there is no GPU. Even the CPU path would not import.
 - The free Workers plan allows 10 ms of CPU per request (the README calls this out for password hashing). A model run takes seconds to minutes.
 
@@ -50,7 +50,7 @@ So the Worker's job is to serve the pages and forward one request.
 ## What realitystream needs as a submodule
 
 1. **Static content only in the build.** `build-static.mjs` already skips dot-files and tooling. Nothing in realitystream should break a static copy: `index.html`, `parameters/`, `output/` and the docs are fine as they are.
-2. **One proxy route.** Add `worker/src/realitystream.js` that forwards `POST /api/realitystream/run` to the Cloud Run URL held in a Worker var `REALITYSTREAM_RUN_URL`, streaming the response back. About 20 lines, modeled on `src/sanity.js`.
+2. **One proxy route.** Add `worker/src/realitystream.js` that forwards `POST /api/realitystream/run` to the Cloud Run URL held in a Worker var `REALITYSTREAM_RUN_URL`, streaming the response back. About 20 lines: `fetch(new Request(target, request))` with the target built from that var.
 3. **Front end calls its own origin.** Pages post YAML to `/api/realitystream/run`, so no CORS entry is needed, matching how the keys widget and chat already work.
 
 ## Cloud Run service from this repo
