@@ -52,6 +52,7 @@ REPORT_TEMPLATE_URL = (
     "https://raw.githubusercontent.com/ModelEarth/localsite/refs/heads/main/start/template/report.html"
 )
 NAICS6_NAMES_URL = "https://github.com/ModelEarth/concordance/raw/master/data-raw/6-digit_2017_Codes.xlsx"
+NAICS2_NAMES_URL = "https://raw.githubusercontent.com/ModelEarth/community-data/master/us/id_lists/naics2.csv"
 RBF_BINARY_URL = "https://downloads.sourceforge.net/project/random-bits-forest/rbf.zip"
 
 # ---------------------------------------------------------------------------
@@ -217,10 +218,15 @@ def load_parameters(yaml_path_or_url):
 
 
 def _common_column(param):
+    """Join column: features/targets `common` or `id`, then `join.key`, then top-level `common`, else Fips."""
     for holder in ("features", "targets"):
         obj = getattr(param, holder, None)
-        if obj is not None and getattr(obj, "common", None):
-            return obj.common
+        for attr in ("common", "id"):
+            if obj is not None and getattr(obj, attr, None):
+                return getattr(obj, attr)
+    join = getattr(param, "join", None)
+    if join is not None and getattr(join, "key", None):
+        return join.key
     return getattr(param, "common", None) or "Fips"
 
 
@@ -354,9 +360,13 @@ def load_data(param, return_groups=False):
         target_df = fetch_csv(target_path)
         print(f"  [OK] Loaded targets: {target_path}")
 
-    target_col = next((c for c in ("Target", "target", "y") if c in target_df.columns), None)
+    wanted = getattr(param.targets, "column", None) or getattr(param.targets, "target_column", None)
+    candidates = ([wanted] if wanted else []) + ["Target", "target", "y"]
+    target_col = next((c for c in candidates if c in target_df.columns), None)
     if target_col is None:
-        raise ValueError("Cannot find target column (Target/target/y) in targets data.")
+        raise ValueError(f"Cannot find target column ({'/'.join(candidates)}) in targets data.")
+    if wanted and target_col != wanted:
+        print(f"  [WARN] targets.column '{wanted}' not in targets file; using '{target_col}'.")
 
     common = _common_column(param)
     f_cols = {c.lower(): c for c in features_df.columns}
@@ -364,8 +374,8 @@ def load_data(param, return_groups=False):
     f_key, t_key = f_cols.get(common.lower()), t_cols.get(common.lower())
     if f_key is None or t_key is None:
         raise ValueError(f"Common column '{common}' must exist in both features and targets.")
-    features_df[f_key] = features_df[f_key].astype(str)
-    target_df[t_key] = target_df[t_key].astype(str)
+    features_df[f_key] = _id_text(features_df[f_key], common)
+    target_df[t_key] = _id_text(target_df[t_key], common)
 
     merged = features_df.merge(target_df[[t_key, target_col]], left_on=f_key, right_on=t_key, how="inner")
     if merged.empty:
@@ -379,7 +389,14 @@ def load_data(param, return_groups=False):
     return X_merged, y_merged
 
 
+def _id_text(series, name):
+    """Join keys as text; county FIPS zero-padded to 5 so 1001 and 01001 match."""
+    text = series.astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
+    return text.str.zfill(5) if name.lower() == "fips" else text
+
+
 def _numeric(X):
+    X = X.loc[:, [c for c in X.columns if not str(c).startswith("Unnamed:")]]  # index column from to_csv()
     dropped = X.select_dtypes(exclude=["number"]).columns.tolist()
     if dropped:
         print(f"  [WARN] Dropping non-numeric columns: {dropped}")
@@ -644,27 +661,41 @@ def train_models(X_train, y_train, X_test, y_test, keys, random_state=RANDOM_STA
 # Feature importance
 # ---------------------------------------------------------------------------
 
-_NAICS6 = None
+_NAICS_NAMES = {}
 
 
-def naics6_name(feature):
-    """Emp-454310 -> '454310-Fuel Dealers'; other names unchanged. Mapping is loaded once, failsafe."""
-    global _NAICS6
-    match = re.match(r"Emp-(\d{6})$", str(feature))
+def _naics_table(digits):
+    """{code: name} for 2- or 6-digit NAICS, loaded once, failsafe."""
+    if digits not in _NAICS_NAMES:
+        try:
+            if digits == 6:
+                df = pd.read_excel(NAICS6_NAMES_URL, dtype=str, skiprows=1, usecols=[0, 1])
+            else:
+                df = pd.read_csv(NAICS2_NAMES_URL, dtype=str)
+            df.columns = ["code", "name"]
+            df["name"] = df["name"].str.strip()
+            _NAICS_NAMES[digits] = df.set_index("code")["name"].to_dict()
+        except Exception as exc:
+            print(f"  [WARN] NAICS{digits} names unavailable ({exc}); keeping raw codes.")
+            _NAICS_NAMES[digits] = {}
+    return _NAICS_NAMES[digits]
+
+
+def naics_name(feature):
+    """Emp-11 -> 'Emp-11-Agriculture, Forestry, Fishing and Hunting'; Emp-454310-2019 -> 'Emp-454310-Fuel Dealers-2019'.
+
+    Prefix (Emp/Est/Pay) and year are kept so names stay unique and recoverable."""
+    match = re.match(r"^(Emp|Est|Pay)-(\d{2}|\d{6})(?:-(\d{4}))?$", str(feature))
     if not match:
         return feature
-    if _NAICS6 is None:
-        try:
-            df = pd.read_excel(NAICS6_NAMES_URL, dtype=str, skiprows=1, usecols=[0, 1])
-            df.columns = ["code", "name"]
-            _NAICS6 = df.set_index("code")["name"].to_dict()
-        except Exception as exc:
-            print(f"  [WARN] NAICS6 names unavailable ({exc}); keeping raw codes.")
-            _NAICS6 = {}
-    return f"{match.group(1)}-{_NAICS6.get(match.group(1), 'Unknown')}"
+    prefix, code, year = match.groups()
+    name = _naics_table(len(code)).get(code)
+    if not name:
+        return feature
+    return f"{prefix}-{code}-{name}" + (f"-{year}" if year else "")
 
 
-def feature_importances(results, feature_names, map_naics=False):
+def feature_importances(results, feature_names, map_naics=True):
     """{model_key: DataFrame(Feature, Importance)} for models that expose importances."""
     out = {}
     for r in results:
@@ -680,7 +711,7 @@ def feature_importances(results, feature_names, map_naics=False):
             continue
         df = pd.DataFrame({"Feature": list(feature_names), "Importance": values})
         if map_naics:
-            df["Feature"] = df["Feature"].map(naics6_name)
+            df["Feature"] = df["Feature"].map(naics_name)
         out[key] = df.sort_values("Importance", ascending=False).reset_index(drop=True)
     return out
 
@@ -926,6 +957,19 @@ def cross_validate_models(X, y, groups, keys, folds=5, cv="stratified", random_s
     return results, cv
 
 
+def _warn_timeseries(param):
+    """The YAML's timeseries section isn't used yet; say so, and whether its file is reachable."""
+    ts_path = getattr(getattr(param, "timeseries", None), "path", None)
+    if not ts_path:
+        return
+    try:
+        reachable = requests.head(ts_path, timeout=30, allow_redirects=True).status_code == 200
+        state = "reachable" if reachable else "not found"
+    except Exception as exc:
+        state = f"not checked ({exc.__class__.__name__})"
+    print(f"  [WARN] timeseries.path is {state} and not used yet: {ts_path}")
+
+
 def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=20, smote=None):
     """Load params -> fetch data -> train (plain and SMOTE) -> write report folder -> optional upload.
 
@@ -946,6 +990,7 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=20, smote=
     else:
         X, y = load_data(param)
         groups = None
+    _warn_timeseries(param)
     X_train, X_test, y_train, y_test = split_data(X, y)
     print(f"  Train: {len(X_train)} rows   Test: {len(X_test)} rows   Features: {X.shape[1]}")
 
@@ -964,8 +1009,7 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=20, smote=
         results_smote = train_models(X_train, y_train, X_test, y_test, keys, n_iter=n_iter, smote=True)
         _apply_lift(results_smote, baseline)
 
-    map_naics = "naics" in str(getattr(param.features, "path", ""))
-    importances = feature_importances(results_smote or results_no_smote, list(X.columns), map_naics)
+    importances = feature_importances(results_smote or results_no_smote, list(X.columns))
 
     setup_report_folder(report_dir)
     write_reports(report_dir, params, results_no_smote, results_smote, importances)
