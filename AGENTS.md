@@ -9,7 +9,7 @@ Active processes for the Google Cloud deployment. Plans and status: [PLAN.md](PL
 | root | `index.html` (loads `about.md`, `projects.md`), docs, and `Procfile`, `requirements.txt`, `.python-version`, `.gcloudignore`, which buildpacks read from the deploy root |
 | `api/` | The Cloud Run service: `main.py` (Flask), `run_models.py` (pipeline and CLI), `home.html` (the service's home page), `keystore.py` (local key store) |
 | `deploy/` | `deploy-cloud-run.sh`, `add-team-members.sh`, `read-setting.sh`, and `README.md` with the Google Cloud setup steps |
-| `js/`, `css/` | Shared front end: `param-input.js`, `model-select.js`, `run-panel.js`, `param.css` |
+| `js/`, `css/` | Shared front end: `param-input.js`, `model-select.js`, `run-panel.js`, `model-params.js`, `param.css` |
 | `models/` | Run Models page (`index.html`), the model list (`README.md`), model subpages, `run-models-colab.py` |
 | `parameters/` | Preset YAMLs. Stays put: raw GitHub URLs in `parameter-paths.csv` and the Colab point here |
 | `archive/` | Older notebooks and `run_models_archive.py`. Not used by the service |
@@ -27,9 +27,10 @@ The front end only sends YAML (the text of `#paramText pre`) to `POST /run`. Any
 
 ## API (`api/main.py`)
 
-`GET /` (HTML for browsers, usage JSON otherwise), `GET /health`, `GET /key`, `GET /parameters`, `POST /run[?upload=1][&smote=0|1]`, and `GET /keys` (local only, never on Cloud Run).
+`GET /` (HTML for browsers, usage JSON otherwise), `GET /health`, `GET /key`, `GET /parameters`, `GET /model-params`, `POST /run[?upload=1][&smote=0|1]`, and `GET /keys` (local only, never on Cloud Run).
 
 - Team Passphrase: header `X-API-Key` matching `REALITYSTREAM_API_KEY` (Secret Manager `realitystream-api-key`). With it: 20 runs a day, any models, uploads. Without it: 1 run a day of 1 model.
+- Model settings: the YAML's `split`, `search` and `hyperparameters` sections, defined in `api/model-params.yaml` (served at `/model-params`). `run_models.validate_parameters` checks them, and `/run` returns HTTP 400 with `field` before the run is counted. Without the Team Passphrase, any of these sections gets HTTP 403 `key_needed`. A schema default for a field that isn't searched must match `make_model()`; a test checks this.
 - Daily cost cap `DAILY_COST_LIMIT_USD` (default $0.20). Usage totals in Firestore (collection `usage`), reset at midnight Eastern.
 - CORS allows only https://model.earth and http://localhost:8887 (and 127.0.0.1:8887). Add origins in `ALLOWED_ORIGINS`.
 - Live URL: https://realitystream-kwr4qrkopq-uc.a.run.app (also https://realitystream-839376296196.us-central1.run.app), set as `RS_RUN_API` in `js/run-panel.js`.
@@ -63,7 +64,7 @@ ASSET_BASE=http://localhost:8887/ python api/main.py  # home page loads your loc
 python -m pytest tests                                # also runs in CI (.github/workflows/tests.yml)
 ```
 
-To point http://localhost:8887/realitystream/models/ at the local API, set `data-api="http://localhost:8080/"` on `#rsRunControls` (read by `apiBase()` in `js/run-panel.js`). Don't commit that attribute.
+To point the local page at the local API, open http://localhost:8887/realitystream/models/?api=http://localhost:8080/ (`apiBase()` in `js/run-panel.js` honors `?api=` only on localhost). The Model Settings panel (`js/model-params.js`) appears only when that API serves `/model-params`.
 
 ## Related repos
 

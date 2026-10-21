@@ -1,0 +1,228 @@
+# Model settings that a parameters.yaml may set in its split, search and hyperparameters sections.
+# api/run_models.py validates against this file (validate_parameters), GET /model-params serves it,
+# and the Model Settings panel on realitystream/models/ is built from it.
+#
+# Each field:
+#   type        int, float, choice, or layers (a list of 1 to 3 layer sizes)
+#   default     the value used when the YAML leaves the field out. For fields that aren't searched,
+#               it must match make_model() in run_models.py (tests/test_run_models.py checks).
+#   min, max    inclusive range for int, float and each layer size
+#   options     allowed values for choice
+#   step, log   hints for the form: step size, and whether the range is better shown on a log scale
+#   search      true when RandomizedSearchCV tries values for this field. A value in the YAML fixes
+#               the field and removes it from the search; the default applies only when no search runs.
+#   valid_with  {other_field: {its_value: [values allowed here]}}
+#   only_with   {other_field: [values]}: the field applies only when the other field has one of these
+#   gpu         false when cuML ignores the field (GPU runs use cuML for rfc, lr and svm)
+#   help        one line for the form
+
+version: 1
+
+split:
+  test_size:
+    type: float
+    default: 0.2
+    min: 0.1
+    max: 0.5
+    step: 0.05
+    help: Share of rows held out for testing.
+  random_state:
+    type: int
+    default: 42
+    min: 0
+    max: 1000000
+    help: Seed for the split, the models, SMOTE and the search, so a run can be repeated.
+
+search:
+  n_iter:
+    type: int
+    default: 20
+    min: 1
+    max: 50
+    help: Settings RandomizedSearchCV tries for XGBoost and MLP, each with 5-fold cross-validation.
+
+hyperparameters:
+  rfc:
+    n_estimators:
+      type: int
+      default: 100
+      min: 10
+      max: 500
+      step: 10
+      help: Number of trees.
+    max_depth:
+      type: int
+      default: 8
+      min: 1
+      max: 50
+      help: Deepest split of each tree.
+    criterion:
+      type: choice
+      default: gini
+      options: [gini, entropy, log_loss]
+      gpu: false
+      help: How each split is scored.
+    max_features:
+      type: choice
+      default: sqrt
+      options: [sqrt, log2]
+      help: Features each split considers.
+
+  lr:
+    penalty:
+      type: choice
+      default: l2
+      options: [l2, l1, elasticnet, none]
+      valid_with:
+        solver:
+          lbfgs: [l2, none]
+          liblinear: [l2, l1]
+          newton-cg: [l2, none]
+          saga: [l2, l1, elasticnet, none]
+      help: Regularization. L1 can drop features; elastic net mixes L1 and L2.
+    solver:
+      type: choice
+      default: lbfgs
+      options: [lbfgs, liblinear, newton-cg, saga]
+      gpu: false
+      help: Optimizer. Each one supports only some penalties.
+    C:
+      type: float
+      default: 1.0
+      min: 0.001
+      max: 1000
+      log: true
+      help: Inverse of regularization strength. Smaller values regularize more.
+    l1_ratio:
+      type: float
+      default: 0.5
+      min: 0.0
+      max: 1.0
+      step: 0.05
+      only_with:
+        penalty: [elasticnet]
+      help: Share of L1 in the elastic net penalty.
+    max_iter:
+      type: int
+      default: 1000
+      min: 100
+      max: 5000
+      step: 100
+      help: Most optimizer iterations.
+
+  svm:
+    kernel:
+      type: choice
+      default: rbf
+      options: [rbf, linear, poly, sigmoid]
+      help: Shape of the decision boundary.
+    C:
+      type: float
+      default: 1.0
+      min: 0.001
+      max: 1000
+      log: true
+      help: Penalty for misclassified training rows. Larger values fit the training data more closely.
+    degree:
+      type: int
+      default: 3
+      min: 2
+      max: 5
+      only_with:
+        kernel: [poly]
+      help: Degree of the polynomial kernel.
+
+  xgboost:
+    n_estimators:
+      type: int
+      default: 100
+      min: 10
+      max: 500
+      step: 10
+      search: true
+      help: Number of boosting rounds.
+    learning_rate:
+      type: float
+      default: 0.3
+      min: 0.01
+      max: 1.0
+      log: true
+      search: true
+      help: How much each round corrects the previous ones.
+    max_depth:
+      type: int
+      default: 6
+      min: 1
+      max: 15
+      search: true
+      help: Deepest split of each tree.
+    subsample:
+      type: float
+      default: 1.0
+      min: 0.5
+      max: 1.0
+      step: 0.05
+      search: true
+      help: Share of rows each tree sees.
+    colsample_bytree:
+      type: float
+      default: 1.0
+      min: 0.5
+      max: 1.0
+      step: 0.05
+      search: true
+      help: Share of features each tree sees.
+
+  mlp:
+    hidden_layer_sizes:
+      type: layers
+      default: [100]
+      min: 1
+      max: 512
+      search: true
+      help: Neurons in each hidden layer, up to 3 layers.
+    activation:
+      type: choice
+      default: relu
+      options: [relu, tanh, logistic]
+      search: true
+      help: Activation function of the hidden layers.
+    solver:
+      type: choice
+      default: adam
+      options: [adam, sgd, lbfgs]
+      search: true
+      help: Weight optimizer.
+    alpha:
+      type: float
+      default: 0.0001
+      min: 0.00001
+      max: 0.1
+      log: true
+      search: true
+      help: L2 regularization strength.
+    learning_rate_init:
+      type: float
+      default: 0.001
+      min: 0.0001
+      max: 0.1
+      log: true
+      search: true
+      help: Starting step size for adam and sgd.
+    max_iter:
+      type: int
+      default: 200
+      min: 50
+      max: 1000
+      step: 50
+      search: true
+      help: Most training epochs.
+
+  rbf:
+    number_of_trees:
+      type: int
+      default: 200
+      min: 10
+      max: 1000
+      step: 10
+      help: Number of random bits trees.

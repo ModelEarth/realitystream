@@ -19,7 +19,7 @@ Linked from [ModelEarth/projects #63](https://github.com/ModelEarth/projects/iss
 | `timeseries` section in the canopy YAML | file is missing in tree-canopy; decision needed on what it should do |
 | Data Commons two-column targets | Nov 5 PR |
 | Repo layout: move what's in use from the cloud repo, and files out of the root (below) | done 2026-10-21; Cloud Run revision realitystream-00013-2jz |
-| Model parameter editing, from the Streamlit forms (below) | planned 2026-10-21, after the layout move |
+| Model parameter editing, from the Streamlit forms (below) | Steps 1-5 and 7-11 done locally 2026-10-21; not yet committed or deployed |
 | Archive the streamlit repo | done 2026-10-21; removed from webroot's `.gitmodules` |
 
 How the raw export compares with `run_models.py` (2026-10-09): the export is 16,845 lines (10,612 code lines, 168 cells) and defines `train_multiple_models` seven times with 16 cuML import blocks; the module is 795 lines (646 code lines, 29 functions and classes), about 6 percent of the export, with the same report output.
@@ -136,20 +136,20 @@ One schema file, `api/model-params.yaml`, lists each model's fields: type, defau
 
 **API** (deploy before the front end; until then the old service ignores these keys without saying so)
 
-1. `run_models.py`: pass `hyperparameters[key]` into `make_model`, `split` into `split_data`, and `search.n_iter` into `train_models`. Remove fixed keys from `_param_grid`. Add `params_used` per model to the summary, using `best_params_` when a search ran.
-2. `run_models.validate_parameters(params, schema)`: reject unknown fields, out-of-range values and invalid combinations, with a message naming the field. `api/main.py` returns it as HTTP 400 (it is a 500 today). Without the Team Passphrase, a YAML containing `split`, `search` or `hyperparameters` gets HTTP 403 `key_needed`, as more than one model does now.
-3. `GET /model-params` in `api/main.py` returns the schema, so the page shows the field list the deployed service validates against. A 404 tells the page an older service is running, and it hides the panel.
+1. Done. `run_models.py`: pass `hyperparameters[key]` into `make_model`, `split` into `split_data`, and `search.n_iter` into `train_models`. Remove fixed keys from `_param_grid`. Add `params_used` per model to the summary, using `best_params_` when a search ran.
+2. Done. `run_models.validate_parameters(params)`: reject unknown fields, out-of-range values and invalid combinations, with a message naming the field. `api/main.py` returns it as HTTP 400 (it is a 500 today). Without the Team Passphrase, a YAML containing `split`, `search` or `hyperparameters` gets HTTP 403 `key_needed`, as more than one model does now.
+3. Done. `GET /model-params` in `api/main.py` returns the schema, so the page shows the field list the deployed service validates against. A 404 tells the page an older service is running, and it hides the panel.
 4. `.gcloudignore`: nothing to add, since `api/` is uploaded whole.
-5. Tests in `tests/test_run_models.py`: overrides reach the estimator, fixed keys leave the grid, validation errors, and an unchanged YAML gives unchanged results.
+5. Done (also `tests/test_main.py` for the API). Tests in `tests/test_run_models.py`: overrides reach the estimator, fixed keys leave the grid, validation errors, and an unchanged YAML gives unchanged results.
 6. `./deploy/deploy-cloud-run.sh`, then check `GET /model-params` on the live URL.
 
 **Front end** (push to GitHub; no redeploy except for `home.html`)
 
-7. New `js/model-params.js` renders a "Model Settings" panel: a Split row, then one card for each selected model, following `model-select.js` changes. It writes the YAML sections, reads them back when the YAML is edited by hand, and only writes values that differ from the defaults, so the YAML stays short.
-8. Controls: number fields with steppers and range hints rather than sliders, selects that grey out invalid options (with the reason), "Default" beside each changed value, and a "Search" or "Fixed" switch for XGBoost and MLP fields. Help text comes from the schema. Without the Team Passphrase, every field still shows with its default, but inactive, under the note "Enter the Team Passphrase to change model settings." The fields become active when `run-panel.js` accepts the passphrase, so it needs to announce key changes (for example a `rsKeyChange` event). Lay out by panel width, include `.dark` styles, and use the Panel Menu Toggle System from `localsite/js/localsite.js`.
-9. `js/param-input.js`: add `split`, `search` and `hyperparameters` to `RS_YAML_ROOTS`, so shared links keep them and the Reset button counts them.
-10. `models/index.html`: add the panel between Models and Settings. In `api/home.html`, do the same and redeploy, since Cloud Run serves that page.
-11. `js/run-panel.js`: show `params_used` in the results table, and show 400 messages beside the field they name.
+7. Done. New `js/model-params.js` renders a "Model Settings" panel: a Split row, then one card for each selected model, following `model-select.js` changes. It writes the YAML sections, reads them back when the YAML is edited by hand, and only writes values that differ from the defaults, so the YAML stays short.
+8. Done. Controls: number fields with steppers and range hints rather than sliders, selects that grey out invalid options (with the reason), "Default" beside each changed value, and a "Search" or "Fixed" switch for XGBoost and MLP fields. Help text comes from the schema. Without the Team Passphrase, every field still shows with its default, but inactive, under the note "Enter the Team Passphrase to change model settings." The fields become active when `run-panel.js` accepts the passphrase, so it needs to announce key changes (for example a `rsKeyChange` event). Lay out by panel width, include `.dark` styles, and use the Panel Menu Toggle System from `localsite/js/localsite.js`.
+9. Done. `js/param-input.js`: add `split`, `search` and `hyperparameters` to `RS_YAML_ROOTS`, so shared links keep them and the Reset button counts them.
+10. Done. `models/index.html`: add the panel between Models and Settings. In `api/home.html`, do the same and redeploy, since Cloud Run serves that page.
+11. Done. `js/run-panel.js`: show `params_used` in the results table, and show 400 messages beside the field they name.
 
 **Later**
 
@@ -161,6 +161,7 @@ One schema file, `api/model-params.yaml`, lists each model's fields: type, defau
 
 - Without the Team Passphrase, users see every field, inactive, with its default. Runs without the passphrase use the defaults.
 - The YAML section is named `hyperparameters`.
+- Logistic Regression keeps a `penalty` choice in the YAML. scikit-learn 1.8 deprecated the `penalty` argument (removed in 1.10, and Cloud Run installs the newest release), so `run_models._lr_kwargs` translates it to `l1_ratio` and `C` on 1.8+. `make_model` no longer passes `penalty="l2"`, which already logged a deprecation warning on Cloud Run.
 - Archive the streamlit repo (ModelEarth/streamlit). Done 2026-10-21, and the `streamlit` submodule is removed from webroot.
 
 ## Cloud architecture

@@ -272,6 +272,171 @@ def test_cli_writes_run_summary(tmp_path, monkeypatch):
     assert (report / "run_summary.json").exists()
 
 
+
+# --- Model settings: split, search and hyperparameters (api/model-params.yaml) ---
+
+def test_schema_defaults_match_make_model():
+    """Defaults the form shows must be what make_model() builds (searched and only_with fields aside)."""
+    hyper = rm.model_params_schema()["hyperparameters"]
+    for key, fields in hyper.items():
+        current = rm.make_model(key).get_params()
+        for name, spec in fields.items():
+            value = current.get(name)
+            if "only_with" in spec or value is None or value == "deprecated":
+                continue
+            value = list(value) if isinstance(value, tuple) else value
+            assert value == spec["default"], (key, name, value, spec["default"])
+
+
+def test_search_fields_match_param_grid():
+    rng = np.random.default_rng(0)
+    for key, fields in rm.model_params_schema()["hyperparameters"].items():
+        searched = {name for name, spec in fields.items() if spec.get("search")}
+        assert searched == set(rm._param_grid(key, 2, rng) or {}), key
+
+
+def test_validate_parameters_normalizes():
+    settings = rm.validate_parameters({
+        "split": {"test_size": 0.3, "random_state": 7.0},
+        "search": {"n_iter": 5},
+        "hyperparameters": {"xgb": {"learning_rate": "1e-1"}, "mlp": {"hidden_layer_sizes": 64},
+                            "lr": {"penalty": "elasticnet", "solver": "saga", "l1_ratio": 0.2}},
+    })
+    assert settings["split"] == {"test_size": 0.3, "random_state": 7}
+    assert settings["hyperparameters"]["xgboost"] == {"learning_rate": 0.1}
+    assert settings["hyperparameters"]["mlp"] == {"hidden_layer_sizes": [64]}
+    hashed = rm.validate_parameters({"hyperparameters": {"mlp": {"hidden_layer_sizes": ["50", "50"]}}})  # from a URL hash
+    assert hashed["hyperparameters"]["mlp"] == {"hidden_layer_sizes": [50, 50]}
+    assert rm.validate_parameters({"models": ["lr"]}) == {"split": {}, "search": {}, "hyperparameters": {}}
+
+
+def test_validate_parameters_names_the_field():
+    import pytest
+
+    cases = [
+        ({"split": {"test_size": 0.9}}, "split.test_size"),
+        ({"split": {"shuffle": True}}, "split.shuffle"),
+        ({"search": {"n_iter": 2.5}}, "search.n_iter"),
+        ({"hyperparameters": {"forest": {}}}, "hyperparameters.forest"),
+        ({"hyperparameters": {"rfc": {"criterion": "elasticnet"}}}, "hyperparameters.rfc.criterion"),
+        ({"hyperparameters": {"rfc": {"n_jobs": 1000}}}, "hyperparameters.rfc.n_jobs"),
+        ({"hyperparameters": {"lr": {"penalty": "l1"}}}, "hyperparameters.lr.penalty"),  # lbfgs can't do l1
+        ({"hyperparameters": {"lr": {"l1_ratio": 0.3}}}, "hyperparameters.lr.l1_ratio"),  # needs elasticnet
+        ({"hyperparameters": {"svm": {"degree": 4}}}, "hyperparameters.svm.degree"),       # needs poly
+        ({"hyperparameters": {"mlp": {"hidden_layer_sizes": [10, 10, 10, 10]}}}, "hyperparameters.mlp.hidden_layer_sizes"),
+    ]
+    for params, field in cases:
+        with pytest.raises(rm.ParameterError) as err:
+            rm.validate_parameters(params)
+        assert err.value.field == field, (params, err.value.field)
+
+
+def test_lr_kwargs_for_both_scikit_learn_apis(monkeypatch):
+    monkeypatch.setattr(rm, "_sklearn_at_least", lambda major, minor: True)   # 1.8+: no penalty argument
+    assert rm._lr_kwargs({"penalty": "l1", "solver": "liblinear"}) == {"solver": "liblinear", "l1_ratio": 1.0}
+    assert rm._lr_kwargs({"penalty": "none"}) == {"C": np.inf, "l1_ratio": 0.0}
+    assert rm._lr_kwargs({"penalty": "elasticnet", "solver": "saga"}) == {"solver": "saga", "l1_ratio": 0.5}
+    monkeypatch.setattr(rm, "_sklearn_at_least", lambda major, minor: False)  # before 1.8
+    assert rm._lr_kwargs({"penalty": "l1"}) == {"penalty": "l1"}
+    assert rm._lr_kwargs({"penalty": "none"}) == {"penalty": None}
+    assert rm._lr_kwargs({"C": 2.0}) == {"C": 2.0}
+
+
+def test_hyperparameters_reach_the_estimator():
+    X, y = _data()
+    results = rm.train_models(X[:90], y[:90], X[90:], y[90:], ["rfc", "lr"],
+                              hyperparameters={"rfc": {"n_estimators": 20, "max_depth": 3},
+                                               "lr": {"penalty": "l1", "solver": "liblinear", "C": 0.5}})
+    rfc, lr = results
+    assert rfc["best_model"].n_estimators == 20 and rfc["best_model"].max_depth == 3
+    assert rfc["params_used"] == {"n_estimators": 20, "max_depth": 3, "criterion": "gini", "max_features": "sqrt"}
+    assert lr["params_used"]["penalty"] == "l1" and lr["params_used"]["C"] == 0.5
+    assert "best_model" not in rm.summarize(results)[0] and "params_used" in rm.summarize(results)[0]
+
+
+def test_lr_runs_without_penalty_deprecation_warning():
+    import warnings
+
+    X, y = _data()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        results = rm.train_models(X[:90], y[:90], X[90:], y[90:], ["lr"], hyperparameters={"lr": {"penalty": "none"}})
+    assert not [w for w in caught if "penalty" in str(w.message)]
+    assert results[0]["params_used"]["penalty"] == "none" and "C" not in results[0]["params_used"]
+
+
+def test_fixed_fields_leave_the_search(monkeypatch):
+    import sklearn.model_selection as ms
+
+    real, seen = ms.RandomizedSearchCV, []
+
+    def capture(estimator, param_distributions, **kw):
+        seen.append(set(param_distributions))
+        return real(estimator, param_distributions, **kw)
+
+    monkeypatch.setattr(ms, "RandomizedSearchCV", capture)
+    X, y = _mixed_scale(n=200, minority=50)
+    results = rm.train_models(X[:150], y[:150], X[150:], y[150:], ["mlp"], n_iter=2,
+                              hyperparameters={"mlp": {"activation": "tanh", "max_iter": 300}})
+    assert seen and not {"model__activation", "model__max_iter"} & seen[0]
+    assert "model__alpha" in seen[0]
+    used = results[0]["params_used"]
+    assert used["activation"] == "tanh" and used["max_iter"] == 300
+
+
+def test_empty_settings_give_unchanged_results():
+    X, y = _data()
+
+    def metrics(hyper):
+        return [{k: r[k] for k in ("accuracy", "roc_auc", "f1_score")}
+                for r in rm.train_models(X[:90], y[:90], X[90:], y[90:], ["rfc", "lr"], hyperparameters=hyper)]
+
+    assert metrics(None) == metrics({}) == metrics({"rfc": {}, "lr": {}})
+
+
+def test_run_pipeline_reads_split_and_search(tmp_path, monkeypatch):
+    X, y = _data()
+    seen = {}
+    monkeypatch.setattr(rm, "load_data", lambda param, return_groups=False: (X, y))
+    monkeypatch.setattr(rm, "setup_report_folder", lambda d: os.makedirs(d, exist_ok=True))
+    real_split, real_train = rm.split_data, rm.train_models
+
+    def split(X, y, test_size=0.2, random_state=rm.RANDOM_STATE):
+        seen["split"] = (test_size, random_state)
+        return real_split(X, y, test_size=test_size, random_state=random_state)
+
+    def train(*args, **kw):
+        seen["train"] = (kw["random_state"], kw["n_iter"], kw["hyperparameters"])
+        return real_train(*args, **kw)
+
+    monkeypatch.setattr(rm, "split_data", split)
+    monkeypatch.setattr(rm, "train_models", train)
+    params = tmp_path / "p.yaml"
+    params.write_text("folder: t\nfeatures:\n  path: x\nmodels: [rfc]\n", encoding="utf-8")
+    out = rm.run_pipeline(str(params), report_dir=str(tmp_path / "a"), smote=False)
+    assert seen["split"] == (0.2, 42) and seen["train"] == (42, 20, {})   # as before these sections existed
+    assert out["settings"] == {"test_size": 0.2, "random_state": 42, "n_iter": 20}
+    params.write_text("folder: t\nfeatures:\n  path: x\nmodels: [rfc]\nsplit:\n  test_size: 0.3\n  random_state: 5\n"
+                      "search:\n  n_iter: 4\nhyperparameters:\n  rfc: {n_estimators: 30}\n", encoding="utf-8")
+    out = rm.run_pipeline(str(params), report_dir=str(tmp_path / "b"), smote=False)
+    assert seen["split"] == (0.3, 5) and seen["train"] == (5, 4, {"rfc": {"n_estimators": 30}})
+    assert out["no_smote"][0]["params_used"]["n_estimators"] == 30
+
+
+def test_run_pipeline_rejects_bad_settings_before_loading_data(tmp_path, monkeypatch):
+    import pytest
+
+    def no_load(*a, **kw):
+        raise AssertionError("data loaded before the settings were checked")
+
+    monkeypatch.setattr(rm, "load_data", no_load)
+    params = tmp_path / "p.yaml"
+    params.write_text("folder: t\nfeatures:\n  path: x\nmodels: [rfc]\nhyperparameters:\n  rfc: {max_depth: 0}\n",
+                      encoding="utf-8")
+    with pytest.raises(rm.ParameterError) as err:
+        rm.run_pipeline(str(params), report_dir=str(tmp_path / "r"))
+    assert err.value.field == "hyperparameters.rfc.max_depth"
+
 if __name__ == "__main__":
     import tempfile
 

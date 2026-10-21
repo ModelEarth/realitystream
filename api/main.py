@@ -6,17 +6,21 @@ RealityStream serverless API for Google Cloud Run: Flask wrapper around run_mode
     GET  /health               liveness probe
     GET  /key                  whether header X-API-Key is valid
     GET  /parameters           preset YAML files in parameters/
+    GET  /model-params         settings the YAML's split, search and hyperparameters sections may set
+                               (api/model-params.yaml), for the Model Settings panel
     GET  /keys                 local only (not on Cloud Run): paste NAME=value lines into the OS credential store
     POST /run[?upload=1][&smote=0|1]
                                body = parameters.yaml text, or JSON {"parameters": "parameters-blinks.yaml"}
                                returns the run summary as JSON; upload=1 pushes the report folder;
                                smote=0 trains only without SMOTE, smote=1 only with SMOTE, omitted trains both
 
-A missing key (for example GITHUB_REPORTS_TOKEN when upload=1) returns HTTP 400 with
+A YAML value that model-params.yaml doesn't allow returns HTTP 400 with `field` naming it, before the
+run is counted. A missing key (for example GITHUB_REPORTS_TOKEN when upload=1) returns HTTP 400 with
 `how_to_get_it`, which the front end shows to the user instead of a stack trace.
 With the Team Passphrase (header X-API-Key matching REALITYSTREAM_API_KEY, shared with the team; not a Google key), a caller gets DAILY_RUNS_PER_USER
-runs a day (default 20) with any number of models, and may use upload=1. Without a key, a caller gets
-FREE_RUNS_PER_DAY run (default 1) of 1 model; past that, HTTP 429 with how to run more.
+runs a day (default 20) with any number of models, may change model settings, and may use upload=1.
+Without a key, a caller gets FREE_RUNS_PER_DAY run (default 1) of 1 model with default settings; past that,
+HTTP 429 with how to run more.
 Callers are identified by IP address. Runs also stop for the day once their estimated cost reaches
 DAILY_COST_LIMIT_USD (default $0.20).
 Daily totals (run seconds, estimated cost, runs) are kept in Firestore on Cloud Run, so redeploys
@@ -191,6 +195,7 @@ ENDPOINTS = {
     "GET /health": "Liveness probe",
     "GET /key": "Whether header X-API-Key is valid",
     "GET /parameters": "Preset YAML files in parameters/",
+    "GET /model-params": "Settings the YAML's split, search and hyperparameters sections may set",
     "POST /run": 'Body = parameters.yaml text, or JSON {"parameters": "parameters-blinks.yaml"}. '
                  'Add ?smote=0 to train only without SMOTE, ?smote=1 only with SMOTE (omit to train both), '
                  '?upload=1 to push the report (needs the key). Without header X-API-Key: 1 model, once per day.',
@@ -240,6 +245,14 @@ def parameters():
     return jsonify({"parameters": preset_files()}), 200
 
 
+@app.route("/model-params", methods=["GET"])
+def model_params():
+    """api/model-params.yaml as JSON: each setting's type, default, range or options, and help text."""
+    from run_models import model_params_schema
+
+    return jsonify(model_params_schema()), 200
+
+
 @app.route("/run", methods=["POST", "OPTIONS"])
 def run():
     if request.method == "OPTIONS":
@@ -265,25 +278,35 @@ def run():
         return jsonify({"status": "error", "message": "smote must be 0 or 1 (omit to train both)"}), 400
     smote = None if smote_arg == "" else smote_arg in ("1", "true")
 
-    if not keyed:
-        # Without the Team Passphrase: 1 model, no report upload
-        from run_models import load_parameters
+    # Check the YAML before the run is counted, so a mistake doesn't use up a run
+    from run_models import SETTINGS_SECTIONS, ParameterError, load_parameters, validate_parameters
 
-        try:
-            if yaml_body is None:
-                model_count = len(load_parameters(os.path.join(PARAMETERS_DIR, preset))["models"] or ["rfc"])
-            else:
-                with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, encoding="utf-8") as tmp:
-                    tmp.write(yaml_body)
-                try:
-                    model_count = len(load_parameters(tmp.name)["models"] or ["rfc"])
-                finally:
-                    os.unlink(tmp.name)
-        except Exception as exc:
-            return jsonify({"status": "error", "message": f"Invalid parameters: {exc}"}), 400
-        if model_count > 1:
+    try:
+        if yaml_body is None:
+            params = load_parameters(os.path.join(PARAMETERS_DIR, preset))
+        else:
+            with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, encoding="utf-8") as tmp:
+                tmp.write(yaml_body)
+            try:
+                params = load_parameters(tmp.name)
+            finally:
+                os.unlink(tmp.name)
+        validate_parameters(params)
+    except ParameterError as exc:
+        return jsonify({"status": "error", "field": exc.field, "message": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"status": "error", "message": f"Invalid parameters: {exc}"}), 400
+
+    if not keyed:
+        # Without the Team Passphrase: 1 model with default settings, no report upload
+        if len(params["models"] or ["rfc"]) > 1:
             return jsonify({"status": "key_needed", "more_runs_url": MORE_RUNS_URL,
                             "message": f"Without the Team Passphrase, choose 1 model. {MORE_RUNS}"}), 403
+        changed = [section for section in SETTINGS_SECTIONS if params.get(section)]
+        if changed:
+            return jsonify({"status": "key_needed", "more_runs_url": MORE_RUNS_URL, "sections": changed,
+                            "message": f"Changing model settings ({', '.join(changed)}) needs the Team Passphrase. "
+                                       f"{MORE_RUNS}"}), 403
         if upload:
             return jsonify({"status": "key_needed", "more_runs_url": MORE_RUNS_URL,
                             "message": f"Uploading reports needs the Team Passphrase. {MORE_RUNS}"}), 403

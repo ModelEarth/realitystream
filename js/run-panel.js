@@ -2,8 +2,13 @@
 // Used by realitystream/models/ and the Cloud Run home page (realitystream/api/home.html).
 //
 // Runs go to the RealityStream Cloud Run API (api/main.py): this site when the page is served by
-// Cloud Run, otherwise RS_RUN_API below (or data-api on #rsRunControls). The YAML posted to /run is
-// the text of #paramText pre, which param-input.js and model-select.js keep up to date.
+// Cloud Run, otherwise RS_RUN_API below (or data-api on #rsRunControls). On localhost, ?api= in the page URL
+// points it at a local API instead, for example ?api=http://localhost:8080/ while `python api/main.py` runs.
+// The YAML posted to /run is the text of #paramText pre, which param-input.js, model-select.js and
+// model-params.js keep up to date.
+//
+// Events for model-params.js: rsKeyChange (detail.limited: true without a valid Team Passphrase) and
+// rsParamError (detail.field and detail.message, when /run rejects a value in the YAML).
 //
 // Containers (each optional except #rsRunControls):
 //   #rsUsage        today's run time and cost
@@ -30,6 +35,10 @@
   function apiBase() {
     const el = $('rsRunControls');
     if (el && el.dataset.api) return new URL(el.dataset.api, location.href).href.replace(/\/?$/, '/');
+    if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
+      const local = new URLSearchParams(location.search).get('api');
+      if (local) return new URL(local, location.href).href.replace(/\/?$/, '/');
+    }
     return /\.run\.app$/.test(location.hostname) ? location.origin + '/' : RS_RUN_API;
   }
 
@@ -89,11 +98,14 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
 .rs-table th, .rs-table td { text-align:left; padding:7px 10px 7px 0; border-top:1px solid rgba(127,127,127,.25); white-space:nowrap; }
 .rs-table th { opacity:.75; font-weight:600; }
 .rs-table td.wrap { white-space:normal; }
+.rs-settings-cell { font-size:12px; opacity:.8; min-width:180px; }
+.rs-run-settings { margin:0 0 8px; opacity:.85; }
 `;
 
   let info = null;
   let keyValid = false;
   let keyChecked = false; // Limits apply only after the saved key is checked, so a key holder's models aren't trimmed
+  let limitedNow = null;  // true without a valid Team Passphrase; null until checked
   const KEY_STORE = 'realitystreamApiKey';
 
   function savedKey() {
@@ -113,6 +125,10 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
   function applyKeyMode() {
     const limited = !!(info && info.api_key_enabled) && !keyValid;
     if (window.RSModelSelect && RSModelSelect.setSingle) RSModelSelect.setSingle(limited);
+    if (limited !== limitedNow) {
+      limitedNow = limited;
+      document.dispatchEvent(new CustomEvent('rsKeyChange', { detail: { limited } }));
+    }
     const note = document.querySelector('#rsRunControls .rs-free-note');
     if (note) {
       note.style.display = limited ? 'block' : 'none';
@@ -202,6 +218,11 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
 
   const pct = v => (v == null ? '' : (v <= 1 ? (v * 100).toFixed(1) : Number(v).toFixed(1)) + '%');
 
+  // A model's settings, from params_used, as "n_estimators 100, max_depth 8"
+  function settingsText(used) {
+    return Object.entries(used || {}).map(([k, v]) => `${k} ${Array.isArray(v) ? v.join('×') : v}`).join(', ');
+  }
+
   function showResults(data) {
     const host = $('rsResults');
     if (!host) return;
@@ -210,11 +231,16 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
       (data[key] || []).forEach(r => rows.push(
         `<tr><td>${escapeHtml(r.model_type || r.model || '')}</td><td>${label}</td><td>${pct(r.accuracy)}</td>`
         + `<td>${pct(r.roc_auc)}</td><td>${pct(r.f1_score)}</td><td>${pct(r.precision)}</td><td>${pct(r.recall)}</td>`
-        + `<td>${r.time != null ? Number(r.time).toFixed(1) + ' s' : ''}</td></tr>`));
+        + `<td>${r.time != null ? Number(r.time).toFixed(1) + ' s' : ''}</td>`
+        + `<td class="wrap rs-settings-cell">${escapeHtml(settingsText(r.params_used))}</td></tr>`));
     });
-    host.querySelector('.rs-results-body').innerHTML = '<div class="rs-table-wrap"><table class="rs-table">'
-      + '<tr><th>Model</th><th>Training</th><th>Accuracy</th><th>ROC-AUC</th><th>F1</th><th>Precision</th><th>Recall</th><th>Time</th></tr>'
-      + (rows.join('') || '<tr><td colspan="8">No models were trained.</td></tr>') + '</table></div>'
+    const s = data.settings;
+    host.querySelector('.rs-results-body').innerHTML
+      = (s ? `<p class="rs-run-settings">Test share ${Math.round(s.test_size * 100)}%, seed ${escapeHtml(s.random_state)}, `
+        + `${escapeHtml(s.n_iter)} search tries for XGBoost and MLP</p>` : '')
+      + '<div class="rs-table-wrap"><table class="rs-table">'
+      + '<tr><th>Model</th><th>Training</th><th>Accuracy</th><th>ROC-AUC</th><th>F1</th><th>Precision</th><th>Recall</th><th>Time</th><th>Settings</th></tr>'
+      + (rows.join('') || '<tr><td colspan="9">No models were trained.</td></tr>') + '</table></div>'
       + (data.uploaded_to
         ? `<p>Report uploaded to <a href="https://github.com/modelearth/reports/tree/main/${escapeHtml(data.uploaded_to)}" target="_blank" rel="noopener">modelearth/reports/${escapeHtml(data.uploaded_to)}</a></p>`
         : '');
@@ -252,6 +278,10 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
         // Limits without the Team Passphrase: link the ways to run more
         const msg = escapeHtml((data.message || '').replace(/To run more,.*$/, '').trim());
         setStatus('', 'error', msg + ' ' + moreRunsHtml());
+      } else if (resp.status === 400 && data.field) {
+        // A value model-params.js can point to
+        setStatus(data.message, 'error');
+        document.dispatchEvent(new CustomEvent('rsParamError', { detail: { field: data.field, message: data.message } }));
       } else if (resp.status === 401) {
         setStatus('The Team Passphrase was not accepted. Check it, or choose Clear to run without one.', 'error');
       } else {
@@ -394,7 +424,7 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
     apply(layout);
   }
 
-  window.RSRunPanel = { refreshUsage, apiBase };
+  window.RSRunPanel = { refreshUsage, apiBase, isLimited: () => limitedNow };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);

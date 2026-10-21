@@ -5,8 +5,9 @@ function rsDebugAlert(message) {
 // Global variables for parambase handling (declared early to avoid TDZ)
 let cachedParambaseContent = {};
 let currentParambase = null;
-// YAML keys that hash values can override
-const RS_YAML_ROOTS = ["folder", "features", "targets", "models"];
+// YAML keys that hash values can override. split, search and hyperparameters are the model settings
+// (realitystream/js/model-params.js), for example #hyperparameters.rfc.n_estimators=200
+const RS_YAML_ROOTS = ["folder", "features", "targets", "models", "split", "search", "hyperparameters"];
 
 // Webroot this script was loaded from (it resides in realitystream/js/). Locally that's this site;
 // on pages hosted elsewhere, such as the RealityStream Cloud Run service, it's https://model.earth/.
@@ -338,10 +339,8 @@ function loadParamTextFromCurrentState() {
         let hash = getHash();
         console.log("loadParamTextFromCurrentState - hash:", hash);
         
-        const modelHashParams = ["features", "targets", "models"];
-        const addHashKeys = ["folder","features", "targets", "models"];
         let parsedContent = parseYAML(preContent);
-        parsedContent = updateYAMLFromHash(parsedContent, hash, addHashKeys);
+        parsedContent = updateYAMLFromHash(parsedContent, hash, RS_YAML_ROOTS);
         preContent = convertToYAML(parsedContent);
         preTag.textContent = preContent;
         
@@ -575,9 +574,8 @@ if (!isProfileItemPage() && parambaseSelect && typeof loadBaseParamsSelect === '
     
     function insertHashValues(modelHashParams) {
       // Main execution
-      const addHashKeys = ["folder","features", "targets", "models"];
       let parsedContent = parseYAML(preContent);
-      parsedContent = updateYAMLFromHash(parsedContent, hash, addHashKeys);
+      parsedContent = updateYAMLFromHash(parsedContent, hash, RS_YAML_ROOTS);
       preContent = convertToYAML(parsedContent);
       preTag.textContent = preContent;
       
@@ -2374,7 +2372,7 @@ function applyHashToParamText() {
         return; // YAML being edited isn't valid yet
     }
     if (!parsedContent) return;
-    parsedContent = updateYAMLFromHash(parsedContent, getHash(), ["folder", "features", "targets", "models"]);
+    parsedContent = updateYAMLFromHash(parsedContent, getHash(), RS_YAML_ROOTS);
     const updatedYaml = convertToYAML(parsedContent);
     if (updatedYaml !== currentYaml) {
         preTag.textContent = updatedYaml;
@@ -2393,11 +2391,8 @@ function updateParamTextWithBase(baseYamlText) {
         
         // Apply hash overrides
         const hash = getHash();
-        const modelHashParams = ["features", "targets", "models"];
-        const addHashKeys = ["folder","features", "targets", "models"];
-        
         let parsedContent = parseYAML(baseYamlText);
-        parsedContent = updateYAMLFromHash(parsedContent, hash, addHashKeys);
+        parsedContent = updateYAMLFromHash(parsedContent, hash, RS_YAML_ROOTS);
         const updatedYaml = convertToYAML(parsedContent);
         
         preTag.textContent = updatedYaml;
@@ -2725,10 +2720,8 @@ function updateResetButtonVisibility() {
 
     // Check if there are any hash parameters that would modify the YAML content
     const hash = getHash();
-    const modelHashParams = ["folder","features", "targets", "models"];
-    
     // Check if any model parameters exist in the hash
-    const hasYamlOverrides = modelHashParams.some(param => {
+    const hasYamlOverrides = RS_YAML_ROOTS.some(param => {
         if (hash[param]) return true;
         // Check for nested parameters like features.data, targets.path, etc.
         return Object.keys(hash).some(key => key.startsWith(param + '.'));
@@ -2906,6 +2899,8 @@ function isMeaningfulChange(baseValue, currentValue) {
 // Function to find differences between base and current YAML
 function findYamlDifferences(baseYaml, currentYaml) {
     const differences = {};
+    // The model settings roots (split, search, hyperparameters) are left to model-params.js, which mirrors
+    // them in the hash field by field
     const modelHashParams = ["folder","features", "targets", "models"];
     
     // Helper function to flatten nested objects for comparison

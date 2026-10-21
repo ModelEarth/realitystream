@@ -101,6 +101,22 @@ Add an `evaluation:` block to the parameters YAML to also score with k-fold cros
 
 `stratified` uses `StratifiedKFold(shuffle=True)` over all rows. `group` uses `GroupKFold` with each county's **state** (FIPS // 1000) as the group, so whole states are held out — this exposes geographic leakage (state-held-out scores sit below stratified); with fewer groups than folds it falls back to `stratified`. Scaling and SMOTE are fit inside each fold (fixed model settings, no nested search, to stay within the Cloud Run cost cap). Results — fold mean ± std for ROC-AUC, PR-AUC, balanced accuracy and macro F1, plus baseline lift — go to `model_performance_cv.csv` and the `"cv"` key of the run summary; the existing report files are untouched.
 
+### Model settings (optional)
+
+Add `split`, `search` or `hyperparameters` sections to change the test share, the seed, the search size or a model's settings. Leave them out and the run is unchanged. [api/model-params.yaml](api/model-params.yaml) lists every setting with its default and range, and the run stops with a message naming the setting when a value isn't allowed.
+
+    split:
+      test_size: 0.3        # 0.1 to 0.5 (default 0.2)
+      random_state: 7       # seeds the split, models, SMOTE and search (default 42)
+    search:
+      n_iter: 10            # RandomizedSearchCV tries for xgboost and mlp (default 20)
+    hyperparameters:
+      rfc: {n_estimators: 200, max_depth: 12}
+      lr: {penalty: l1, solver: liblinear, C: 0.5}
+      xgboost: {learning_rate: 0.05}   # a fixed value leaves the search; the rest are still searched
+
+Each model in the run summary lists its `params_used`, including the values the search chose. On the Cloud Run API, changing these settings needs the Team Passphrase.
+
 ### Keys
 
 Settings are read one name at a time: first from the environment, then from the env file named by `automation/paths.yaml` in the [webroot](https://model.earth/webroot). The whole file is never loaded.

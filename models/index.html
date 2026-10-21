@@ -12,7 +12,8 @@
   The same shared files make up the Cloud Run home page (api/home.html):
   realitystream/js/param-input.js (parameter base, features and targets, YAML),
   realitystream/js/model-select.js (models and their details, from README.md) and
-  realitystream/js/run-panel.js (today's usage, SMOTE choice, Run button and results).
+  realitystream/js/run-panel.js (today's usage, SMOTE choice, Run button and results) and
+  realitystream/js/model-params.js (Model Settings: split, search and each model's hyperparameters).
 -->
 <script type="text/javascript" src="../../localsite/js/localsite.js?showheader=true"></script>
 <link rel="stylesheet" href="../css/param.css">
@@ -56,6 +57,9 @@ function redirectToMainPage() {
     <div id="modelSelect"></div>
   </section>
 
+  <!-- Model Settings, built by model-params.js from the API's /model-params (hidden on an older service) -->
+  <section class="rs-panel" id="modelParams"></section>
+
   <section class="rs-panel" data-rs-layout>
     <h2>Settings</h2>
     <select id="parambase" class="ls-select"></select>
@@ -75,6 +79,7 @@ function redirectToMainPage() {
 <script src="../js/param-input.js"></script>
 <script src="../js/model-select.js"></script>
 <script src="../js/run-panel.js"></script>
+<script src="../js/model-params.js"></script>
 <script>
 // Intro (back to RealityStream with the selected models) at the far right of the Run button.
 // run-panel.js builds the Run button when the page has loaded, so add Intro after that.

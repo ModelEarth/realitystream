@@ -187,6 +187,205 @@ class DictToObject:
         return {k: v.to_dict() if isinstance(v, DictToObject) else v for k, v in vars(self).items()}
 
 
+# ---------------------------------------------------------------------------
+# Model settings: the YAML's split, search and hyperparameters sections
+# ---------------------------------------------------------------------------
+
+MODEL_PARAMS_PATH = os.path.join(HERE, "model-params.yaml")
+SETTINGS_SECTIONS = ("split", "search", "hyperparameters")
+_MODEL_PARAMS = None
+
+
+def model_params_schema():
+    """Fields a parameters.yaml may set in split, search and hyperparameters (api/model-params.yaml)."""
+    global _MODEL_PARAMS
+    if _MODEL_PARAMS is None:
+        with open(MODEL_PARAMS_PATH, encoding="utf-8") as fh:
+            _MODEL_PARAMS = yaml.safe_load(fh)
+    return _MODEL_PARAMS
+
+
+class ParameterError(ValueError):
+    """A split, search or hyperparameters value that model-params.yaml doesn't allow; field names it."""
+
+    def __init__(self, field, message):
+        super().__init__(f"{field}: {message}")
+        self.field = field
+
+
+def _check_value(field, spec, value):
+    """One YAML value checked against its model-params.yaml spec; returns it normalized."""
+    kind = spec["type"]
+    if kind == "choice":
+        if value is None and "none" in spec["options"]:
+            value = "none"
+        if str(value) not in [str(o) for o in spec["options"]]:
+            raise ParameterError(field, f"{value} isn't an option; choose {', '.join(map(str, spec['options']))}")
+        return str(value)
+    if kind == "layers":
+        sizes = [value] if isinstance(value, (int, str)) and not isinstance(value, bool) else value
+        if isinstance(sizes, (list, tuple)):  # A URL hash gives "50,50" as text
+            sizes = [int(s) if isinstance(s, str) and s.strip().isdigit() else s for s in sizes]
+        if not isinstance(sizes, (list, tuple)) or not 1 <= len(sizes) <= 3:
+            raise ParameterError(field, "give 1 to 3 layer sizes, for example [100] or [50, 50]")
+        for size in sizes:
+            if isinstance(size, bool) or not isinstance(size, int) or not spec["min"] <= size <= spec["max"]:
+                raise ParameterError(field, f"each layer size must be a whole number from {spec['min']} to {spec['max']}")
+        return list(sizes)
+    if isinstance(value, bool):
+        raise ParameterError(field, f"must be a number, not {value}")
+    if kind == "int":
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        if not isinstance(value, int):
+            raise ParameterError(field, f"must be a whole number, not {value}")
+    else:
+        try:
+            value = float(value)  # also accepts text such as 1e-4, which YAML reads as a string
+        except (TypeError, ValueError):
+            raise ParameterError(field, f"must be a number, not {value}") from None
+    if not spec["min"] <= value <= spec["max"]:
+        raise ParameterError(field, f"must be from {spec['min']} to {spec['max']}, not {value}")
+    return value
+
+
+def _check_fields(prefix, fields, values):
+    """Check one section's {field: value} mapping, including the only_with and valid_with rules."""
+    if not isinstance(values, dict):
+        raise ParameterError(prefix, "must be a list of setting: value lines")
+    checked = {}
+    for name, value in values.items():
+        if name not in fields:
+            raise ParameterError(f"{prefix}.{name}", f"unknown setting; choose from {', '.join(fields)}")
+        checked[name] = _check_value(f"{prefix}.{name}", fields[name], value)
+
+    def effective(name):  # The YAML's value, else the default
+        return checked.get(name, fields[name].get("default"))
+
+    for name in checked:
+        for other, allowed in (fields[name].get("only_with") or {}).items():
+            if effective(other) not in allowed:
+                raise ParameterError(f"{prefix}.{name}", f"applies only when {other} is {' or '.join(allowed)} "
+                                                         f"({other} is {effective(other)})")
+    for name, spec in fields.items():
+        for other, table in (spec.get("valid_with") or {}).items():
+            allowed = table.get(effective(other))
+            if (name in checked or other in checked) and allowed is not None and effective(name) not in allowed:
+                raise ParameterError(f"{prefix}.{name}", f"{effective(name)} doesn't work with {other} {effective(other)}; "
+                                                         f"choose {' or '.join(allowed)}, or another {other}")
+    return checked
+
+
+def validate_parameters(params):
+    """Check the YAML's split, search and hyperparameters sections against model-params.yaml.
+
+    Returns {"split": {...}, "search": {...}, "hyperparameters": {model_key: {...}}} holding only the values
+    the YAML sets, normalized (model aliases become keys). Raises ParameterError naming the field.
+    Hyperparameters for models the YAML doesn't run are checked too, then ignored by training.
+    """
+    schema = model_params_schema()
+    settings = {"split": {}, "search": {}, "hyperparameters": {}}
+    for section in ("split", "search"):
+        if params.get(section) is not None:
+            settings[section] = _check_fields(section, schema[section], params[section])
+    hyper = params.get("hyperparameters")
+    if hyper is None:
+        return settings
+    if not isinstance(hyper, dict):
+        raise ParameterError("hyperparameters", "must list models, each with setting: value lines")
+    for model, values in hyper.items():
+        key = MODEL_KEYS.get(str(model).lower())
+        if key is None:
+            raise ParameterError(f"hyperparameters.{model}", f"unknown model; choose from {', '.join(schema['hyperparameters'])}")
+        if values is not None:
+            settings["hyperparameters"][key] = _check_fields(f"hyperparameters.{model}", schema["hyperparameters"][key], values)
+    return settings
+
+
+def _sklearn_at_least(major, minor):
+    import sklearn
+
+    return tuple(int(n) for n in re.findall(r"\d+", sklearn.__version__)[:2]) >= (major, minor)
+
+
+def _lr_kwargs(values, cuml=False):
+    """Logistic Regression arguments for the installed library. The YAML names a penalty (l2, l1, elasticnet,
+    none); scikit-learn 1.8 deprecated `penalty` (removed in 1.10) in favor of l1_ratio, with C=inf for none."""
+    values = dict(values)
+    penalty = values.pop("penalty", None)
+    if penalty == "elasticnet":
+        values.setdefault("l1_ratio", model_params_schema()["hyperparameters"]["lr"]["l1_ratio"]["default"])
+    if penalty is None:
+        return values
+    if cuml:
+        values["penalty"] = penalty
+    elif not _sklearn_at_least(1, 8):
+        values["penalty"] = None if penalty == "none" else penalty
+    elif penalty == "none":
+        values.update(C=np.inf, l1_ratio=0.0)
+    elif penalty in ("l1", "l2"):
+        values["l1_ratio"] = 1.0 if penalty == "l1" else 0.0
+    return values
+
+
+def apply_hyperparameters(model, key, values, gpu=False):
+    """Set the YAML's hyperparameters (validated) on a make_model() estimator and return it.
+    On the GPU path, fields cuML doesn't accept are left out with a warning."""
+    if not values:
+        return model
+    fields = model_params_schema()["hyperparameters"][key]
+    values = dict(values)
+    if gpu:
+        dropped = [name for name in values if fields[name].get("gpu") is False]
+        for name in dropped:
+            values.pop(name)
+        if dropped:
+            print(f"  [WARN] cuML {key} ignores {', '.join(dropped)}")
+    if key == "lr":
+        values = _lr_kwargs(values, cuml=gpu)
+    if "hidden_layer_sizes" in values:
+        values["hidden_layer_sizes"] = tuple(values["hidden_layer_sizes"])
+    return model.set_params(**values)
+
+
+def _json_value(value):
+    if isinstance(value, (tuple, list)):
+        return [_json_value(v) for v in value]
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, float) and not np.isfinite(value):
+        return None  # Browsers can't parse Infinity in JSON
+    return value
+
+
+def params_used(key, model):
+    """The model's values for its model-params.yaml fields, JSON-safe. Searched fields show what the
+    search chose; a library default left as None shows the schema default."""
+    fields = model_params_schema()["hyperparameters"].get(key, {})
+    try:
+        current = model.get_params()
+    except Exception:
+        return {}
+    used = {name: _json_value(current[name]) if current[name] is not None else spec.get("default")
+            for name, spec in fields.items() if name in current and "only_with" not in spec}
+    if key == "lr":
+        penalty = current.get("penalty")
+        if penalty == "deprecated":  # scikit-learn 1.8+: l1_ratio and C carry the penalty
+            ratio = current.get("l1_ratio") or 0
+            penalty = ("none" if current.get("C") == np.inf else "l2" if ratio == 0
+                       else "l1" if ratio == 1 else "elasticnet")
+        elif penalty is None:
+            penalty = "none"
+        used["penalty"] = penalty
+        if penalty == "elasticnet":
+            used["l1_ratio"] = _json_value(current.get("l1_ratio"))
+        if penalty == "none":
+            used.pop("C", None)
+    if key == "svm" and used.get("kernel") == "poly":
+        used["degree"] = _json_value(current.get("degree"))
+    return used
+
+
 PARAMETER_PATHS_URL = "https://raw.githubusercontent.com/ModelEarth/RealityStream/main/parameters/parameter-paths.csv"
 
 
@@ -508,7 +707,8 @@ def make_model(key, random_state=RANDOM_STATE):
             from cuml.linear_model import LogisticRegression
             return LogisticRegression(max_iter=1000, penalty="l2")
         from sklearn.linear_model import LogisticRegression
-        return LogisticRegression(max_iter=1000, penalty="l2")
+        # L2 is the default penalty; scikit-learn 1.8 deprecated the penalty argument (see _lr_kwargs)
+        return LogisticRegression(max_iter=1000)
     if key == "svm":
         if gpu:
             from cuml.svm import SVC
@@ -552,7 +752,8 @@ def _param_grid(key, n_iter, rng):
 SCALE_SENSITIVE = {"lr", "svm", "mlp"}
 
 
-def train_models(X_train, y_train, X_test, y_test, keys, random_state=RANDOM_STATE, n_iter=20, smote=False):
+def train_models(X_train, y_train, X_test, y_test, keys, random_state=RANDOM_STATE, n_iter=20, smote=False,
+                 hyperparameters=None):
     """Train each requested model; return a list of result dicts (same fields as the colab).
 
     Scaling (lr/svm/mlp) and SMOTE are fit on training data only. When a hyperparameter search
@@ -560,6 +761,9 @@ def train_models(X_train, y_train, X_test, y_test, keys, random_state=RANDOM_STA
     them on its own training part; otherwise they are applied to the training split directly, which
     is leak-free as there is no CV there. Returns ``[]`` when SMOTE is requested but a class has
     fewer than 2 rows.
+
+    hyperparameters: {model_key: {field: value}} from validate_parameters(). Fixed values are set on the
+    estimator and leave the search grid. Each result's "params_used" lists the model's settings.
     """
     from imblearn.over_sampling import SMOTE
     from imblearn.pipeline import Pipeline as ImbPipeline
@@ -581,8 +785,9 @@ def train_models(X_train, y_train, X_test, y_test, keys, random_state=RANDOM_STA
     results = []
 
     for key in keys:
+        fixed = (hyperparameters or {}).get(key) or {}
         try:
-            model = make_model(key, random_state)
+            model = apply_hyperparameters(make_model(key, random_state), key, fixed, gpu)
         except Exception as exc:
             print(f"  [WARN] Skipping {key}: {exc}")
             continue
@@ -590,7 +795,8 @@ def train_models(X_train, y_train, X_test, y_test, keys, random_state=RANDOM_STA
         scale = key in SCALE_SENSITIVE
         start = time.time()
         try:
-            grid = _param_grid(key, n_iter, rng)
+            # The grid is drawn before fixed fields leave it, so other fields get the same candidates
+            grid = {k: v for k, v in (_param_grid(key, n_iter, rng) or {}).items() if k not in fixed}
             if grid and can_search:
                 # Scaling and SMOTE as pipeline steps: each CV fold fits them on its own training part.
                 steps = []
@@ -651,6 +857,7 @@ def train_models(X_train, y_train, X_test, y_test, keys, random_state=RANDOM_STA
             "f1_score": round(pos.get("f1-score", 0.0), 4),
             "balanced_accuracy": round(balanced_accuracy_score(y_test_np, y_pred), 4),
             "time": round(elapsed, 2),
+            "params_used": params_used(key, best_model),
             "classification_report": report,
         }
         print(f"  Accuracy {result['accuracy']}  ROC-AUC {result['roc_auc']}  F1 {result['f1_score']}  "
@@ -883,7 +1090,7 @@ def _cv_fold_scores(estimator, X_tr, y_tr, X_te, y_te):
     return scores
 
 
-def _cv_pipeline(key, random_state, smote_k):
+def _cv_pipeline(key, random_state, smote_k, fixed=None):
     """Fixed-setting estimator for CV: scaler (lr/svm/mlp) + optional SMOTE + model, no nested search."""
     from imblearn.over_sampling import SMOTE
     from imblearn.pipeline import Pipeline as ImbPipeline
@@ -894,11 +1101,12 @@ def _cv_pipeline(key, random_state, smote_k):
         steps.append(("scaler", StandardScaler()))
     if smote_k is not None:
         steps.append(("smote", SMOTE(random_state=random_state, k_neighbors=smote_k)))
-    steps.append(("model", make_model(key, random_state)))
+    steps.append(("model", apply_hyperparameters(make_model(key, random_state), key, fixed, gpu_enabled())))
     return ImbPipeline(steps)
 
 
-def cross_validate_models(X, y, groups, keys, folds=5, cv="stratified", random_state=RANDOM_STATE):
+def cross_validate_models(X, y, groups, keys, folds=5, cv="stratified", random_state=RANDOM_STATE,
+                          hyperparameters=None):
     """Cross-validate with fixed model settings (no nested search). Scaling and SMOTE are pipeline steps
     fit per fold, so they never see held-out rows. cv is 'stratified' (StratifiedKFold over all rows) or
     'group' (GroupKFold by state, falling back to stratified when there are fewer groups than folds).
@@ -947,7 +1155,9 @@ def cross_validate_models(X, y, groups, keys, folds=5, cv="stratified", random_s
             print(f"  [WARN] Skipping {key}: {exc}")
             continue
         try:
-            agg = aggregate(key, lambda sk, key=key: _cv_pipeline(key, random_state, sk), use_smote=True)
+            fixed = (hyperparameters or {}).get(key)
+            agg = aggregate(key, lambda sk, key=key, fixed=fixed: _cv_pipeline(key, random_state, sk, fixed),
+                            use_smote=True)
         except Exception as exc:
             print(f"  [WARN] {key} failed: {exc}")
             continue
@@ -972,18 +1182,29 @@ def _warn_timeseries(param):
     print(f"  [WARN] timeseries.path is {state} and not used yet: {ts_path}")
 
 
-def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=20, smote=None):
+def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=None, smote=None):
     """Load params -> fetch data -> train (plain and SMOTE) -> write report folder -> optional upload.
 
     smote: None trains both without and with SMOTE, False only without, True only with.
     An optional ``evaluation:`` block in the YAML adds k-fold cross-validation (``model_performance_cv.csv``
     and the "cv" return key); the existing report files and behaviour are unchanged when it is absent.
+    Optional ``split``, ``search`` and ``hyperparameters`` sections (api/model-params.yaml) set the test
+    share and seed, the search size, and model settings. n_iter, when given, overrides search.n_iter.
     """
     print("=" * 60 + "\n  RealityStream Run Models\n" + "=" * 60)
     params = load_parameters(yaml_path)
     param = DictToObject(OrderedDict(params))
     keys = params["models"] or ["rfc"]
     print(f"[PARAMS] {yaml_path}\n   folder: {params.get('folder', 'N/A')}   models: {keys}   gpu: {gpu_enabled()}")
+    settings = validate_parameters(params)
+    schema = model_params_schema()
+    test_size = settings["split"].get("test_size", schema["split"]["test_size"]["default"])
+    seed = settings["split"].get("random_state", schema["split"]["random_state"]["default"])
+    if n_iter is None:
+        n_iter = settings["search"].get("n_iter", schema["search"]["n_iter"]["default"])
+    hyper = settings["hyperparameters"]
+    print(f"   test_size: {test_size}   random_state: {seed}   n_iter: {n_iter}"
+          + "".join(f"\n   {k}: {v}" for k, v in hyper.items() if k in keys))
 
     evaluation = params.get("evaluation") or {}
     print("\n[DATA] Loading...")
@@ -993,7 +1214,7 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=20, smote=
         X, y = load_data(param)
         groups = None
     _warn_timeseries(param)
-    X_train, X_test, y_train, y_test = split_data(X, y)
+    X_train, X_test, y_train, y_test = split_data(X, y, test_size=test_size, random_state=seed)
     print(f"  Train: {len(X_train)} rows   Test: {len(X_test)} rows   Features: {X.shape[1]}")
 
     baseline = majority_baseline(y_train, y_test)
@@ -1003,12 +1224,14 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=20, smote=
     results_no_smote, results_smote = [], []
     if smote is not True:
         print("\n[TRAIN] Without SMOTE")
-        results_no_smote = train_models(X_train, y_train, X_test, y_test, keys, n_iter=n_iter, smote=False)
+        results_no_smote = train_models(X_train, y_train, X_test, y_test, keys, random_state=seed, n_iter=n_iter,
+                                        smote=False, hyperparameters=hyper)
         _apply_lift(results_no_smote, baseline)
 
     if smote is not False:
         print("\n[TRAIN] With SMOTE")
-        results_smote = train_models(X_train, y_train, X_test, y_test, keys, n_iter=n_iter, smote=True)
+        results_smote = train_models(X_train, y_train, X_test, y_test, keys, random_state=seed, n_iter=n_iter,
+                                     smote=True, hyperparameters=hyper)
         _apply_lift(results_smote, baseline)
 
     importances = feature_importances(results_smote or results_no_smote, list(X.columns))
@@ -1019,8 +1242,9 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=20, smote=
     cv = None
     if evaluation:
         folds = int(evaluation.get("folds", 5))
-        cv_results, cv_used = cross_validate_models(X, y, groups, keys,
-                                                    folds=folds, cv=evaluation.get("cv", "stratified"))
+        cv_results, cv_used = cross_validate_models(X, y, groups, keys, folds=folds,
+                                                    cv=evaluation.get("cv", "stratified"),
+                                                    random_state=seed, hyperparameters=hyper)
         cv_results_table(cv_results).to_csv(os.path.join(report_dir, "model_performance_cv.csv"), index=False)
         cv = {"mode": cv_used, "folds": folds, "results": cv_results}
 
@@ -1030,6 +1254,7 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=20, smote=
         "folder": params.get("folder"),
         "report_dir": os.path.abspath(report_dir),
         "baseline": baseline,
+        "settings": {"test_size": test_size, "random_state": seed, "n_iter": n_iter},
         "no_smote": summarize(results_no_smote),
         "smote": summarize(results_smote),
         "feature_importance": {k: v.head(20).to_dict(orient="records") for k, v in importances.items()},
@@ -1048,7 +1273,8 @@ def main():
                              "entry of parameters/parameter-paths.csv, as in the colab)")
     parser.add_argument("--report-dir", default="report", help="output folder (default: report)")
     parser.add_argument("--upload", action="store_true", help="push the report folder to modelearth/reports")
-    parser.add_argument("--n-iter", type=int, default=20, help="RandomizedSearchCV iterations for xgboost/mlp")
+    parser.add_argument("--n-iter", type=int, help="RandomizedSearchCV iterations for xgboost/mlp "
+                                                   "(default: search.n_iter in the YAML, else 20)")
     parser.add_argument("--smote", choices=["0", "1"], help="0 = only without SMOTE, 1 = only with SMOTE (default: both)")
     args = parser.parse_args()
     smote = None if args.smote is None else args.smote == "1"
@@ -1056,6 +1282,9 @@ def main():
         summary = run_pipeline(args.yaml, args.report_dir, args.upload, args.n_iter, smote=smote)
     except MissingKey as exc:
         print(f"\n[KEY] {exc}")
+        sys.exit(2)
+    except ParameterError as exc:
+        print(f"\n[PARAMS] {exc}")
         sys.exit(2)
     with open(os.path.join(args.report_dir, "run_summary.json"), "w", encoding="utf-8") as fh:
         json.dump(summary, fh, indent=2, default=str)
