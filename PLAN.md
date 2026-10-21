@@ -20,7 +20,7 @@ Linked from [ModelEarth/projects #63](https://github.com/ModelEarth/projects/iss
 | Data Commons two-column targets | Nov 5 PR |
 | Repo layout: move what's in use from the cloud repo, and files out of the root (below) | done 2026-10-21; Cloud Run revision realitystream-00013-2jz |
 | Model parameter editing, from the Streamlit forms (below) | planned 2026-10-21, after the layout move |
-| Archive the streamlit repo | decided 2026-10-21 |
+| Archive the streamlit repo | done 2026-10-21; removed from webroot's `.gitmodules` |
 
 How the raw export compares with `run_models.py` (2026-10-09): the export is 16,845 lines (10,612 code lines, 168 cells) and defines `train_multiple_models` seven times with 16 cuML import blocks; the module is 795 lines (646 code lines, 29 functions and classes), about 6 percent of the export, with the same report output.
 
@@ -83,7 +83,7 @@ realitystream/
 2. **Cloud Run**: run `./deploy/deploy-cloud-run.sh`, because `home.html` and the `Procfile` moved. Check `/`, `/health` and a one-model run.
 3. **profile**: point `item/index.html` at `/realitystream/js/param-input.js` and `/realitystream/css/param.css`.
 4. **cloud**: delete the moved files, and replace the README section with a link to `realitystream/deploy/`. Mark the rest of `cloud/run` as the older process.
-5. **webroot**: update `start cloud` in AGENTS.md to point here (`python api/main.py`, `deploy/deploy-cloud-run.sh`). Once the streamlit repo is archived, remove it from `.gitmodules`.
+5. **webroot**: update `start cloud` in AGENTS.md to point here (`python api/main.py`, `deploy/deploy-cloud-run.sh`). The streamlit repo is archived and removed from `.gitmodules`.
 
 ## Model parameter editing
 
@@ -161,7 +161,7 @@ One schema file, `api/model-params.yaml`, lists each model's fields: type, defau
 
 - Without the Team Passphrase, users see every field, inactive, with its default. Runs without the passphrase use the defaults.
 - The YAML section is named `hyperparameters`.
-- Archive the streamlit repo (ModelEarth/streamlit). This needs an admin of the repo, then removal of the `streamlit` submodule from webroot's `.gitmodules`.
+- Archive the streamlit repo (ModelEarth/streamlit). Done 2026-10-21, and the `streamlit` submodule is removed from webroot.
 
 ## Cloud architecture
 
