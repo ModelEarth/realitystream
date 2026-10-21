@@ -495,3 +495,25 @@ def test_check_reports_token(monkeypatch):
     assert "Read and write" in rm.check_reports_token("t")["message"]
     monkeypatch.setattr(rm.requests, "post", lambda *a, **k: Resp(422))
     assert "(from this browser)" in rm.check_reports_token("t", "GITHUB_REPORTS_TOKEN (from this browser)")["message"]
+
+
+def test_reports_repo_and_site(monkeypatch):
+    settings = {}
+    monkeypatch.setattr(rm, "get_env", lambda name, default=None: settings.get(name, default))
+    assert rm.reports_repo() == "modelearth/reports"
+    assert rm.reports_site() == "https://model.earth/reports/"
+    settings["GITHUB_REPORTS_REPO"] = "Someone/reports"
+    assert rm.reports_site() == "https://someone.github.io/reports/"
+    assert rm.reports_site("someone/someone.github.io") == "https://someone.github.io/"
+    settings["GITHUB_REPORTS_SITE"] = "https://reports.example.org"
+    assert rm.reports_site() == "https://reports.example.org/"
+
+
+def test_push_report_view_url(monkeypatch, tmp_path):
+    settings = {"GITHUB_REPORTS_TOKEN": "t"}
+    monkeypatch.setattr(rm, "get_env", lambda name, default=None: settings.get(name, default))
+    monkeypatch.setattr(rm, "upload_reports", lambda d, repo, year, subfolder, token: f"{year}/{subfolder}")
+    pushed, github = rm.push_report(str(tmp_path), "auto", name="2026/run-x")
+    assert pushed == "2026/run-x" and github["view_url"] == "https://model.earth/reports/2026/run-x/"
+    assert github["repo"] == "modelearth/reports"
+    assert github["message"].index("View at https://model.earth/reports/2026/run-x/") < github["message"].index("Pushed to")

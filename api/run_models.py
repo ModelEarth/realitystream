@@ -49,7 +49,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # The realitystream folder: this file resides in its api/ folder
 REALITYSTREAM_DIR = os.path.dirname(HERE)
 RANDOM_STATE = 42
-REPORTS_REPO = "modelearth/reports"
+REPORTS_REPO = "modelearth/reports"  # Default for GITHUB_REPORTS_REPO
 REPORT_TEMPLATE_URL = (
     "https://raw.githubusercontent.com/ModelEarth/localsite/refs/heads/main/start/template/report.html"
 )
@@ -117,6 +117,26 @@ def get_env(name, default=None):
                 if line.startswith(name + "="):
                     return line.split("=", 1)[1].strip().strip("\"'") or default
     return default
+
+
+def reports_repo():
+    """The GitHub repo runs are pushed to: GITHUB_REPORTS_REPO (owner/name), else modelearth/reports."""
+    return get_env("GITHUB_REPORTS_REPO") or REPORTS_REPO
+
+
+def reports_site(repo=None):
+    """The web address the reports repo is served at, ending in /: GITHUB_REPORTS_SITE, else model.earth
+    for modelearth, else the owner's GitHub Pages ({owner}.github.io/{name}/)."""
+    repo = repo or reports_repo()
+    site = get_env("GITHUB_REPORTS_SITE")
+    if site:
+        return site.rstrip("/") + "/"
+    owner, name = repo.split("/", 1)
+    if owner.lower() == "modelearth":
+        return f"https://model.earth/{name}/"
+    if name.lower() == f"{owner.lower()}.github.io":
+        return f"https://{name.lower()}/"
+    return f"https://{owner.lower()}.github.io/{name}/"
 
 
 def require_env(name):
@@ -994,8 +1014,9 @@ def write_file_list(report_dir):
         json.dump({"files": files}, fh, indent=2)
 
 
-def upload_reports(report_dir, repo=REPORTS_REPO, branch="main", year=None, subfolder=None, token=None):
+def upload_reports(report_dir, repo=None, branch="main", year=None, subfolder=None, token=None):
     """Commit every file in report_dir to {year}/{subfolder}/ in the reports repo. Returns that path."""
+    repo = repo or reports_repo()
     token = token or require_env("GITHUB_REPORTS_TOKEN")
     default_year, default_subfolder = report_name().split("/")
     year = year or default_year
@@ -1213,10 +1234,11 @@ def check_reports_token(token=None, label="GITHUB_REPORTS_TOKEN"):
     token = token if token is not None else get_env("GITHUB_REPORTS_TOKEN")
     if not token:
         return {"token": "missing", "message": f"{label} is not set, so output isn't pushed to GitHub."}
+    repo = reports_repo()
     # The repo's permissions.push is the account's role, not a fine-grained token's own access, so ask for
     # a branch at a commit that can't exist: GitHub checks write access first (403), then the commit (422)
     try:
-        resp = requests.post(f"https://api.github.com/repos/{REPORTS_REPO}/git/refs", timeout=15,
+        resp = requests.post(f"https://api.github.com/repos/{repo}/git/refs", timeout=15,
                              headers={"Authorization": f"token {token}", "Accept": "application/vnd.github+json"},
                              json={"ref": "refs/heads/rs-token-check", "sha": "0" * 40})
     except Exception:
@@ -1225,9 +1247,9 @@ def check_reports_token(token=None, label="GITHUB_REPORTS_TOKEN"):
         return {"token": "invalid", "message": f"GitHub rejects {label}: it has expired or been revoked (401), "
                                                 "so output won't be pushed to GitHub."}
     if resp.status_code == 422:
-        return {"token": "valid", "message": f"{label} works: output will be pushed to {REPORTS_REPO}."}
+        return {"token": "valid", "message": f"{label} works: output will be pushed to {repo}."}
     if resp.status_code in (403, 404):
-        return {"token": "no_access", "message": f"{label} can't write to {REPORTS_REPO}, so output won't be "
+        return {"token": "no_access", "message": f"{label} can't write to {repo}, so output won't be "
                                                   "pushed to GitHub. " + NO_WRITE_FIX}
     return {"token": "unknown", "message": f"GitHub answered HTTP {resp.status_code} when checking {label}."}
 
@@ -1235,7 +1257,8 @@ def check_reports_token(token=None, label="GITHUB_REPORTS_TOKEN"):
 def push_report(report_dir, upload, name=None, token=None, label="GITHUB_REPORTS_TOKEN"):
     """Push the report folder to the reports repo. upload: True (GITHUB_REPORTS_TOKEN required), False
     (don't), or "auto" (push when the token is available). Returns (uploaded_to or None, github status):
-    {"token": "available" | "missing" | None, "pushed_to": path or None, "message": text for the page}.
+    {"token": "available" | "missing" | None, "pushed_to": path or None, "message": text for the page},
+    plus "repo" and "view_url" (the report on the repo's website) after a push.
     token: one sent from the browser, used in place of the setting; label names it in messages."""
     if not upload:
         return None, {"token": None, "pushed_to": None, "message": ""}
@@ -1246,8 +1269,9 @@ def push_report(report_dir, upload, name=None, token=None, label="GITHUB_REPORTS
         return None, {"token": "missing", "pushed_to": None,
                       "message": f"{label} is not set, so the report wasn't pushed to GitHub."}
     year, subfolder = (name or report_name()).split("/")
+    repo = reports_repo()
     try:
-        pushed = upload_reports(report_dir, year=year, subfolder=subfolder, token=token)
+        pushed = upload_reports(report_dir, repo=repo, year=year, subfolder=subfolder, token=token)
     except Exception as exc:
         print(f"  [WARN] GitHub push failed: {exc}")
         status = getattr(getattr(exc, "response", None), "status_code", None)
@@ -1255,12 +1279,13 @@ def push_report(report_dir, upload, name=None, token=None, label="GITHUB_REPORTS
             message = (f"GitHub rejected {label}: it has expired or been revoked (401). "
                        "Create a new one at https://github.com/settings/tokens and replace it.")
         elif status in (403, 404):
-            message = f"{label} can't write to {REPORTS_REPO} (HTTP {status}). " + NO_WRITE_FIX
+            message = f"{label} can't write to {repo} (HTTP {status}). " + NO_WRITE_FIX
         else:
             message = f"{label} is set, but the push to GitHub failed: {exc}"
         return None, {"token": "invalid" if status == 401 else "available", "pushed_to": None, "message": message}
-    return pushed, {"token": "available", "pushed_to": pushed,
-                    "message": f"{label} is set. Pushed to {REPORTS_REPO}/{pushed}."}
+    view_url = f"{reports_site(repo)}{pushed}/"
+    return pushed, {"token": "available", "pushed_to": pushed, "repo": repo, "view_url": view_url,
+                    "message": f"{label} is set. View at {view_url}. Pushed to {repo}/{pushed}."}
 
 
 def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=None, smote=None, name=None,

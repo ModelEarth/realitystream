@@ -242,6 +242,8 @@ def index():
     if "text/html" in request.headers.get("Accept", ""):
         with open(HOME_PAGE_FILE, encoding="utf-8") as fh:
             return fh.read().replace("{{ASSET_BASE}}", ASSET_BASE), 200, {"Content-Type": "text/html; charset=utf-8"}
+    from run_models import reports_repo, reports_site
+
     day = usage.today()
     try:
         totals = usage.totals(day)
@@ -254,6 +256,7 @@ def index():
                     "daily_cost_limit_usd": DAILY_COST_LIMIT_USD, "daily_limit_minutes": round(DAILY_LIMIT_MINUTES, 1),
                     "api_key_enabled": api_key_enabled(), "free_runs_per_day": FREE_RUNS_PER_DAY,
                     "github_token": github_token_set(), "saves_locally": saves_locally(),
+                    "reports_repo": reports_repo(), "reports_site": reports_site(),
                     "more_runs": MORE_RUNS, "more_runs_url": MORE_RUNS_URL,
                     "endpoints": ENDPOINTS, "source": SOURCE_URL}), 200
 

@@ -119,11 +119,12 @@ a.rs-btn-shape { display:inline-block; text-decoration:none; }
 .rs-run-button.rs-preview, .rs-run-button.rs-preview:disabled { background:#9aa1ab; opacity:1; }
 .rs-run-hint { margin-top:16px; }
 .rs-run-hint + .rs-run-actions { margin-top:8px; }
-/* Preview / Active switch at the top left, followed by the Team Passphrase, and Live at the right */
+/* Preview / Active switch at the top left, followed by the Team Passphrase, and Live and Reports at the right */
 .rs-mode-bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; margin:0 0 12px; }
-a.rs-live-link { margin-left:auto; border:1px solid rgba(127,127,127,.35); border-radius:8px; padding:6px 16px; font-size:14px;
+.rs-top-links { margin-left:auto; display:flex; gap:8px; }
+.rs-top-links a { border:1px solid rgba(127,127,127,.35); border-radius:8px; padding:6px 16px; font-size:14px;
   color:inherit; text-decoration:none; }
-a.rs-live-link:hover { background:rgba(127,127,127,.12); }
+.rs-top-links a:hover { background:rgba(127,127,127,.12); }
 .rs-mode-bar .rs-api-key { margin:0; flex-wrap:wrap; align-items:center; gap:6px 12px; }
 .rs-mode-switch { display:inline-flex; border:1px solid rgba(127,127,127,.35); border-radius:8px; overflow:hidden; font-size:14px; }
 .rs-mode-switch button { background:transparent; color:inherit; border:0; padding:6px 16px; cursor:pointer; font:inherit; }
@@ -389,11 +390,12 @@ a.rs-live-link:hover { background:rgba(127,127,127,.12); }
   }
 
   // The report folder: the local copy when this page shares a webroot with the local API, else the
-  // copy pushed to GitHub (model.earth/reports shows it once GitHub Pages rebuilds)
+  // copy pushed to GitHub (the reports repo's website, model.earth/reports, shows it once GitHub Pages rebuilds)
   const apiIsLocal = () => /^https?:\/\/(localhost|127\.0\.0\.1)[:/]/.test(apiBase());
 
   function outputUrl(data) {
     if (data.output_path && onLocalhost && apiIsLocal()) return location.origin + '/' + data.output_path;
+    if (data.github && data.github.view_url) return data.github.view_url;
     if (data.uploaded_to) return `https://model.earth/reports/${data.uploaded_to}/`;
     return '';
   }
@@ -445,7 +447,9 @@ a.rs-live-link:hover { background:rgba(127,127,127,.12); }
   // A token that won't push: shown in red
   const tokenNotViable = t => ['missing', 'invalid', 'no_access'].includes(t);
 
-  const REPORTS_REPO_LINK = '<a href="https://github.com/modelearth/reports" target="_blank" rel="noopener">modelearth/reports</a>';
+  // The repo runs are pushed to (GITHUB_REPORTS_REPO on the API), from the API's home JSON
+  const reportsRepo = () => (info && info.reports_repo) || 'modelearth/reports';
+  const reportsRepoLink = () => `<a href="https://github.com/${escapeHtml(reportsRepo())}" target="_blank" rel="noopener">${escapeHtml(reportsRepo())}</a>`;
   const START_LOCAL_API = 'To save output in your webroot, start the local API: <code>cd realitystream && python api/main.py</code>';
 
   // A link to save GITHUB_REPORTS_TOKEN in this browser, on the keys page showing just that key
@@ -461,11 +465,15 @@ a.rs-live-link:hover { background:rgba(127,127,127,.12); }
       return 'GitHub token: this Cloud Run revision doesn\'t report it yet, and doesn\'t keep output folders (a redeploy adds both).';
     }
     if (info.github_token) {
-      return `GitHub token (GITHUB_REPORTS_TOKEN) is set: runs with the Team Passphrase are also pushed to ${REPORTS_REPO_LINK}.`;
+      return `GitHub token (GITHUB_REPORTS_TOKEN) is set: runs with the Team Passphrase are also pushed to ${reportsRepoLink()}.`;
     }
     return `GitHub token (GITHUB_REPORTS_TOKEN) is not set${info.saves_locally ? '' : ' on the Cloud Run service'}, `
-      + `so output isn't pushed to ${REPORTS_REPO_LINK}.` + keysLink();
+      + `so output isn't pushed to ${reportsRepoLink()}.` + keysLink();
   }
+
+  // The website part of a report's view_url, as link text: https://model.earth/reports/2026/run-x/ -> model.earth/reports
+  const siteName = (url, pushed) => url.replace(/^https?:\/\//, '').replace(/\/$/, '')
+    .replace(new RegExp('/' + String(pushed || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$'), '');
 
   // View Output to the right of the Run button, the run time and the report's linked path (or why there's none) on the next line, then the GitHub token line.
   // data is a run's reply, or null to show the state before a run.
@@ -497,8 +505,10 @@ a.rs-live-link:hover { background:rgba(127,127,127,.12); }
       github.innerHTML = tokenStatusHtml();
       warn = tokenCheck ? tokenNotViable(tokenCheck.token) : !!info && info.github_token === false;
     } else if (g && g.message) {
-      github.innerHTML = escapeHtml(g.message.replace(/ Pushed to .*$/, ''))
-        + (g.pushed_to ? ` Pushed to <a href="https://github.com/modelearth/reports/tree/main/${escapeHtml(g.pushed_to)}" target="_blank" rel="noopener">modelearth/reports/${escapeHtml(g.pushed_to)}</a>.` : '')
+      const repo = escapeHtml(g.repo || reportsRepo());
+      github.innerHTML = escapeHtml(g.message.replace(/ (View at|Pushed to) .*$/, ''))
+        + (g.view_url ? ` View at <a href="${escapeHtml(g.view_url)}" target="_blank" rel="noopener">${escapeHtml(siteName(g.view_url, g.pushed_to))}</a>.` : '')
+        + (g.pushed_to ? ` Pushed to <a href="https://github.com/${repo}/tree/main/${escapeHtml(g.pushed_to)}" target="_blank" rel="noopener">${repo}/${escapeHtml(g.pushed_to)}</a>.` : '')
         + (!g.pushed_to && (g.token === 'missing' || g.token === 'invalid' || g.token === null) ? keysLink() : '');
       warn = !g.pushed_to && (g.token === 'missing' || g.token === 'invalid' || g.token === 'available');
     } else {
@@ -617,7 +627,10 @@ a.rs-live-link:hover { background:rgba(127,127,127,.12); }
     <span class="rs-key-state"></span>
     <button type="button" class="rs-forget-key" style="display:none">Clear</button>
   </div>
-  ${/\.run\.app$/.test(location.hostname) ? '' : `<a class="rs-live-link" href="${RS_RUN_API}" target="rsCloud" title="The form hosted on Google Cloud Run">Live</a>`}
+  <span class="rs-top-links">
+    ${/\.run\.app$/.test(location.hostname) ? '' : `<a class="rs-live-link" href="${RS_RUN_API}" target="rsCloud" title="The form hosted on Google Cloud Run">Live</a>`}
+    <a class="rs-reports-link" href="https://model.earth/reports/" target="_blank" rel="noopener" title="Run Models reports pushed to GitHub">Reports</a>
+  </span>
 </div>`;
     modeHost.querySelector('.rs-mode-switch').addEventListener('click', e => {
       const b = e.target.closest('button');
