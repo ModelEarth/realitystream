@@ -12,5 +12,5 @@ env/
 *.pyo
 .ipynb_checkpoints
 
-# Random Bits Forest binary, downloaded by deploy-cloud-run.sh and run_models.py
+# Random Bits Forest binary, downloaded by deploy/deploy-cloud-run.sh and api/run_models.py
 models/random-bits-forest/rbf/

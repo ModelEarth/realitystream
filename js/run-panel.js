@@ -1,7 +1,7 @@
 // Shared "Run Models" panel for RealityStream pages: today's usage, SMOTE choice, Run button and results.
-// Used by realitystream/models/ and the Cloud Run home page (realitystream/models/home.html).
+// Used by realitystream/models/ and the Cloud Run home page (realitystream/api/home.html).
 //
-// Runs go to the RealityStream Cloud Run API (models/main.py): this site when the page is served by
+// Runs go to the RealityStream Cloud Run API (api/main.py): this site when the page is served by
 // Cloud Run, otherwise RS_RUN_API below (or data-api on #rsRunControls). The YAML posted to /run is
 // the text of #paramText pre, which param-input.js and model-select.js keep up to date.
 //
@@ -104,7 +104,7 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
   }
 
   function moreRunsHtml() {
-    const url = (info && info.more_runs_url) || 'https://model.earth/cloud/run/#googleaccountautomation';
+    const url = (info && info.more_runs_url) || 'https://model.earth/realitystream/deploy/#googleaccountautomation';
     return `<br>To run more, <a href="${url}" target="_blank" rel="noopener">add a REALITYSTREAM_API_KEY</a> for this Google Cloud project, `
       + `or <a href="${url}" target="_blank" rel="noopener">run on your own cloud account</a>.`;
   }

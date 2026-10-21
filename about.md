@@ -56,7 +56,7 @@ TO DO: Debug errors. Edit Google colab and save to bkup file.
 
 This one doesn't run the Run-Models-bkup.ipynb file yet:
 
-	python run_models.py parameters/parameters.yaml
+	python api/run_models.py parameters/parameters.yaml
 
 
 Example of parameters.yaml format:

@@ -27,7 +27,7 @@ This document captures technical implementation notes, common issues, and UI/UX 
 ```
 
 ### Technical Implementation
-- Implemented in **`cloud/run/js/param-input.js`** inside `loadBaseParamsSelect()`.
+- Implemented in **`js/param-input.js`** inside `loadBaseParamsSelect()`.
 - DOM elements created:
   - `<label id="parambase-label">Base parameters:</label>`
   - `<button id="parambase-copy">Copy shareable link</button>`
@@ -95,5 +95,5 @@ This document captures technical implementation notes, common issues, and UI/UX 
 
 ## File Structure
 - `/parameters/parameter-paths.csv` → master list of YAML configs.  
-- `/cloud/run/js/param-input.js` → UI logic for dropdown, copy, reset, YAML link.  
+- `/realitystream/js/param-input.js` → UI logic for dropdown, copy, reset, YAML link.  
 - `/docs/dev-notes.md` → This file.  

@@ -12,9 +12,9 @@ pushes to github.com/modelearth/reports:
       feature_importance_xgboost.csv
 
 Usage:
-    python run_models.py parameters/parameters.yaml
-    python run_models.py parameters/parameters-blinks.yaml --upload
-    python run_models.py https://raw.githubusercontent.com/.../parameters.yaml
+    python api/run_models.py parameters/parameters.yaml
+    python api/run_models.py parameters/parameters-blinks.yaml --upload
+    python api/run_models.py https://raw.githubusercontent.com/.../parameters.yaml
 
 Settings (GITHUB_REPORTS_TOKEN, DATACOMMONS_API_KEY, ENABLE_GPU) are read one
 name at a time from the environment, then from the env file named by
@@ -46,6 +46,8 @@ import requests
 import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# The realitystream folder: this file resides in its api/ folder
+REALITYSTREAM_DIR = os.path.dirname(HERE)
 RANDOM_STATE = 42
 REPORTS_REPO = "modelearth/reports"
 REPORT_TEMPLATE_URL = (
@@ -84,7 +86,7 @@ class MissingKey(Exception):
 
 def env_file_path():
     """Absolute path of the shared env file, from automation/paths.yaml, or None."""
-    for automation in (os.path.join(HERE, "..", "automation"), os.path.join(HERE, "..", "..", "automation")):
+    for automation in (os.path.join(REALITYSTREAM_DIR, "..", "automation"), os.path.join(REALITYSTREAM_DIR, "..", "..", "automation")):
         paths_yaml = os.path.join(automation, "paths.yaml")
         if not os.path.exists(paths_yaml):
             continue
@@ -101,7 +103,7 @@ def get_env(name, default=None):
     value = os.environ.get(name)
     if value:
         return value
-    try:  # local OS credential store, filled by cloud/run's /keys page (optional dependency)
+    try:  # local OS credential store, filled by api/keystore.py or the local /keys page (optional dependency)
         import keyring
         value = keyring.get_password("modelearth", name)
         if value:
@@ -464,7 +466,7 @@ class RandomBitsForest(BaseEstimator, ClassifierMixin):
         return self._le.inverse_transform((self.predict_proba(X)[:, 1] >= 0.5).astype(int))
 
     def _ensure_binary(self):
-        path = self.bin_path or os.path.join(HERE, "models", "random-bits-forest", "rbf", "rbf")
+        path = self.bin_path or os.path.join(REALITYSTREAM_DIR, "models", "random-bits-forest", "rbf", "rbf")
         if os.path.exists(path) and os.access(path, os.X_OK):
             return path
         target = os.path.dirname(path)

@@ -12,7 +12,7 @@ Update related .ipynb and app.py file to also add your name.
 1. DONE: Generate features-importance reports for available models - Melody and Yogesh.
 2. DONE: Add a comparison process for accuracy reports into one table for viewing. - Melody
 3. DONE: Frontend UX for selecting Features and Targets - Kashmira
-4. TO DO: Send files from local python backup to Github (See run_models_cli.py and run_models.py and most recently admin/run_models.py)
+4. TO DO: Send files from local python backup to Github (See run_models_cli.py and run_models.py and most recently archive/run_models_archive.py)
 5. PARTIALLY DONE: Add output files to the "[report](https://github.com/ModelEarth/reports/)" folder and add smart formatting in the index.html and javascript report display. We send it's content to GitHub as a final step in run_models.py.
 
 Additional items in our [RealityStream project list](https://github.com/modelearth/projects/issues/63)

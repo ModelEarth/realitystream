@@ -1,11 +1,12 @@
 """
 RealityStream serverless API for Google Cloud Run: Flask wrapper around run_models.run_pipeline.
 
-    GET  /                     home page (models/home.html): settings, Run button, today's run time and cost;
+    GET  /                     home page (api/home.html): settings, Run button, today's run time and cost;
                                JSON for non-browsers
     GET  /health               liveness probe
     GET  /key                  whether header X-API-Key is valid
     GET  /parameters           preset YAML files in parameters/
+    GET  /keys                 local only (not on Cloud Run): paste NAME=value lines into the OS credential store
     POST /run[?upload=1][&smote=0|1]
                                body = parameters.yaml text, or JSON {"parameters": "parameters-blinks.yaml"}
                                returns the run summary as JSON; upload=1 pushes the report folder;
@@ -26,9 +27,9 @@ Settings come from run_models.get_env: environment, then the OS credential store
 env file named in automation/paths.yaml. On Cloud Run, set them with --set-env-vars or --set-secrets.
 
 Deploy (no Dockerfile, Google Cloud buildpacks read requirements.txt and Procfile):
-    cd realitystream && ./deploy-cloud-run.sh
+    cd realitystream && ./deploy/deploy-cloud-run.sh
 Local (from the realitystream folder):
-    python models/main.py
+    python api/main.py
 """
 
 import hashlib
@@ -45,16 +46,17 @@ from flask import Flask, jsonify, request
 REALITYSTREAM_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PARAMETERS_DIR = os.path.join(REALITYSTREAM_DIR, "parameters")
 
-# run_models.py resides in the realitystream folder
-if REALITYSTREAM_DIR not in sys.path:
-    sys.path.insert(0, REALITYSTREAM_DIR)
+# run_models.py and keystore.py reside beside this file, in realitystream/api/
+API_DIR = os.path.dirname(os.path.abspath(__file__))
+if API_DIR not in sys.path:
+    sys.path.insert(0, API_DIR)
 
 app = Flask(__name__)
 
 DAILY_RUNS_PER_USER = int(os.environ.get("DAILY_RUNS_PER_USER", "20"))
 # Without the Team Passphrase: this many runs a day per caller, of one model each
 FREE_RUNS_PER_DAY = int(os.environ.get("FREE_RUNS_PER_DAY", "1"))
-MORE_RUNS_URL = "https://model.earth/cloud/run/#googleaccountautomation"
+MORE_RUNS_URL = "https://model.earth/realitystream/deploy/#googleaccountautomation"
 MORE_RUNS = ("To run more, add a REALITYSTREAM_API_KEY for this Google Cloud project, "
              "or run on your own cloud account.")
 
@@ -193,7 +195,7 @@ ENDPOINTS = {
                  'Add ?smote=0 to train only without SMOTE, ?smote=1 only with SMOTE (omit to train both), '
                  '?upload=1 to push the report (needs the key). Without header X-API-Key: 1 model, once per day.',
 }
-SOURCE_URL = "https://github.com/ModelEarth/realitystream/blob/main/models/main.py"
+SOURCE_URL = "https://github.com/ModelEarth/realitystream/blob/main/api/main.py"
 
 HOME_PAGE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "home.html")
 # Webroot the home page loads shared files from (param-input.js, model-select.js, localsite.js).
@@ -203,7 +205,7 @@ ASSET_BASE = os.environ.get("ASSET_BASE", "https://model.earth/")
 
 @app.route("/", methods=["GET"])
 def index():
-    """Home page (models/home.html) for browsers; JSON with today's totals and the endpoints otherwise."""
+    """Home page (api/home.html) for browsers; JSON with today's totals and the endpoints otherwise."""
     if "text/html" in request.headers.get("Accept", ""):
         with open(HOME_PAGE_FILE, encoding="utf-8") as fh:
             return fh.read().replace("{{ASSET_BASE}}", ASSET_BASE), 200, {"Content-Type": "text/html; charset=utf-8"}
@@ -330,6 +332,90 @@ def run():
         finally:
             usage.add_time(time.monotonic() - started, today)
 
+
+
+# Local key store page (formerly cloud/run's /keys). Registered only outside Cloud Run, and answers only to
+# this computer: paste NAME=value lines, for example from a Google Doc, into the OS credential store
+# (api/keystore.py). Values are never shown again; the page lists names and today's read counts.
+KEYS_PAGE = """<!doctype html><meta charset="utf-8"><title>Local keys</title>
+<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 16px}
+textarea{width:100%;height:160px;font-family:monospace}table{border-collapse:collapse;margin:16px 0}
+td,th{border:1px solid #ccc;padding:4px 10px;text-align:left}.note{color:#555;font-size:.9em}</style>
+<h1>Local keys</h1>
+<p class="note">Stored in {backend}. Each line is <code>NAME=value</code>; blank lines and <code>#</code> comments are ignored.
+Values are never shown again. Daily read limit per key: {limit}.</p>
+<form method="post"><textarea name="lines" placeholder="GITHUB_REPORTS_TOKEN=ghp_...&#10;DATACOMMONS_API_KEY=AIza..."></textarea>
+<p><button type="submit">Store</button> {msg}</p></form>
+<table><tr><th>Name</th><th>Reads today</th><th></th></tr>{rows}</table>
+<p class="note">A key that must never be readable on this computer belongs in Secret Manager on Cloud Run, not here.</p>
+"""
+
+
+def keys_local_only():
+    """404 unless the request comes from this computer; a form post from another site gets 403."""
+    from flask import abort
+
+    if request.remote_addr not in ("127.0.0.1", "::1"):
+        abort(404)
+    origin = request.headers.get("Origin")
+    if request.method == "POST" and origin and origin != request.host_url.rstrip("/"):
+        abort(403)
+
+
+def keys_page():
+    import html
+
+    import keyring
+    import keystore
+
+    keys_local_only()
+    if not keystore.available():
+        return "No OS credential store is available on this machine.", 503
+    counts = keystore.reads_today()
+    rows = "".join(
+        f"<tr><td>{html.escape(n)}</td><td>{counts.get(n, 0)}</td>"
+        f"<td><form method='post' action='/keys/delete/{html.escape(n)}' style='margin:0'><button>delete</button></form></td></tr>"
+        for n in keystore.names()
+    ) or "<tr><td colspan=3>nothing stored yet</td></tr>"
+    page = KEYS_PAGE
+    for key, val in (("{backend}", type(keyring.get_keyring()).__name__), ("{limit}", str(keystore.DAILY_READ_LIMIT)),
+                     ("{rows}", rows), ("{msg}", html.escape(request.args.get("msg", "")))):
+        page = page.replace(key, val)
+    return page
+
+
+def keys_store():
+    from flask import redirect
+
+    import keystore
+
+    keys_local_only()
+    stored = 0
+    for line in request.form.get("lines", "").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        if name.strip() and value.strip():
+            keystore.set_key(name, value)
+            stored += 1
+    return redirect(f"/keys?msg=stored+{stored}")
+
+
+def keys_delete(name):
+    from flask import redirect
+
+    import keystore
+
+    keys_local_only()
+    keystore.delete_key(name)
+    return redirect("/keys?msg=deleted")
+
+
+if not os.environ.get("K_SERVICE"):  # Cloud Run sets K_SERVICE
+    app.add_url_rule("/keys", "keys_page", keys_page, methods=["GET"])
+    app.add_url_rule("/keys", "keys_store", keys_store, methods=["POST"])
+    app.add_url_rule("/keys/delete/<name>", "keys_delete", keys_delete, methods=["POST"])
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

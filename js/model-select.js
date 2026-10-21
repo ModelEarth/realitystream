@@ -5,7 +5,7 @@
 //   ## <input type="checkbox" id="model-lr" name="model" value="lr"> Logistic Regression (lr)
 //   - **Type**: ...
 // so adding or editing a model there updates every page that uses this picker:
-// realitystream/models/ and the RealityStream Cloud Run home page (realitystream/models/home.html).
+// realitystream/models/ and the RealityStream Cloud Run home page (realitystream/api/home.html).
 //
 // render() shows the model titles with checkboxes. Each title expands to its details, and
 // "Expand all" opens every one. The checkboxes stay in sync with the URL hash (#models=lr,rfc),

@@ -1,0 +1,443 @@
+#pathControls {
+  margin-top: 10px;
+}
+
+.rs-add-controls {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  min-width: 160px;
+}
+
+.rs-add-controls button {
+  padding: 10px 16px;
+  border-radius: 8px;
+}
+
+.rs-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.15);
+  z-index: 9998;
+}
+
+.rs-popup {
+  display: none;
+  position: fixed;
+  top: 120px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 360px;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  padding: 12px;
+  z-index: 9999;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+}
+
+.dark .rs-popup,
+body.dark .rs-popup {
+  background: #0f172a;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+.rs-popup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: auto;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.rs-popup-title {
+  font-weight: 600;
+}
+
+.rs-popup-close {
+  border: none;
+  background: transparent;
+  font-size: 27px;
+  cursor: pointer;
+  color: inherit;
+  margin-right: -14px;
+}
+
+.rs-role-options {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.rs-role-options label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.rs-popup-subtitle {
+  margin-top: 12px;
+  font-size: 13px;
+  color: #444;
+}
+
+.dark .rs-popup-subtitle,
+body.dark .rs-popup-subtitle {
+  color: #cbd5f5;
+}
+
+.rs-option-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.rs-option-button {
+  text-align: left;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  background: #375a7f;
+  cursor: pointer;
+  color: #fff;
+}
+
+.rs-join-status {
+  display: none;
+  margin: 10px 0 6px 0;
+  padding: 10px 12px 10px 0;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.rs-pickers {
+  margin: 10px 0 12px 0;
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+
+.rs-picker {
+  flex: 1;
+  min-width: 320px;
+}
+
+.rs-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.rs-picker-title {
+  font-weight: 600;
+}
+
+.rs-drop {
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rs-drop-empty {
+  font-size: 10px;
+  color: #777;
+  margin-top: 6px;
+}
+
+.dark .rs-drop,
+body.dark .rs-drop {
+  border-color: transparent;
+}
+
+.dark .rs-drop-empty,
+body.dark .rs-drop-empty {
+  color: #94a3b8;
+}
+
+.rsDetails {
+  position: absolute;
+  right: 44px;
+  top: 42px;
+  width: 360px;
+  max-width: min(420px, calc(100vw - 60px));
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+  padding: 14px 16px;
+}
+
+.rsDetailsInline {
+  position: static;
+  width: 100%;
+  max-width: 100%;
+  margin-top: 10px;
+  box-shadow: none;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.rsDetailsInline::before {
+  display: none;
+}
+
+.dark .rsDetailsInline,
+body.dark .rsDetailsInline {
+  background: #111827;
+}
+
+.rsDetails::before {
+  content: "";
+  position: absolute;
+  right: -8px;
+  top: 18px;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-right: 1px solid #e5e7eb;
+  border-top: 1px solid #e5e7eb;
+  transform: rotate(45deg);
+}
+
+.rsPopHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.rsPopTitle {
+  font-size: 12px;
+  font-weight: 700;
+  color: #111827;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.rsPopClose {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 18px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  color: #6b7280;
+}
+
+.rsPopClose:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.rsDetails .k {
+  font-size: 11px;
+  font-weight: 700;
+  color: #6b7280;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-top: 10px;
+}
+
+.rsDetails .k:first-child {
+  margin-top: 0;
+}
+
+.rsDetails .v {
+  font-size: 13px;
+  color: #111827;
+  margin-top: 6px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.rsDetails a {
+  font-size: 13px;
+  color: #1d4ed8;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.rsDetails a:hover {
+  text-decoration: underline;
+}
+
+.rsCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0;
+}
+
+.rsCardTextWrap {
+  min-width: 0;
+}
+
+.rsCardMenuHolder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  margin-right: 10px;
+}
+
+/* Dataset card menus show a horizontal 3-dot icon instead of localsite's circle arrow.
+   Done in CSS because localsite's setPanelToggleIcon() resets the icon text when the menu toggles. */
+.rsCardMenuHolder .menuIconHolder .material-icons {
+  display: none !important;
+}
+.rsCardMenuHolder .menuIconHolder::after {
+  content: 'more_horiz';
+  font-family: 'Material Symbols Outlined';
+  font-size: 22px;
+  line-height: 1;
+  -webkit-font-feature-settings: 'liga';
+  font-feature-settings: 'liga';
+  /* Circle shape behind the dots */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.07);
+  color: #333;
+  transition: background 0.15s;
+}
+.rsCardMenuHolder .menuIconHolder:hover::after {
+  background: rgba(0, 0, 0, 0.15);
+}
+.dark .rsCardMenuHolder .menuIconHolder::after {
+  background: rgba(255, 255, 255, 0.12);
+  color: #eee;
+}
+.dark .rsCardMenuHolder .menuIconHolder:hover::after {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.rsRowCard {
+  position: relative;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  padding: 10px;
+  cursor: grab;
+}
+.dark .rsRowCard {
+  color: #eee;
+}
+.rsCardTitle {
+  font-weight: 600;
+  font-size: 12px;
+}
+.rsCardTitle a {
+  font-weight: 400;
+}
+
+.rsCardFilename {
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 1.3;
+  margin-bottom: 2px;
+  overflow-wrap: anywhere;
+}
+
+.rsPreviewInline {
+  margin-top: 10px;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 10px;
+}
+
+.rsPreviewMeta {
+  font-size: 12px;
+  color: #555;
+  margin-bottom: 10px;
+}
+
+.dark .rsDetails,
+body.dark .rsDetails {
+  background: #0f172a;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+.dark .rsDetails::before,
+body.dark .rsDetails::before {
+  background: #0f172a;
+  border-right-color: #334155;
+  border-top-color: #334155;
+}
+
+.dark .rsPopHeader,
+body.dark .rsPopHeader {
+  border-bottom-color: rgba(226, 232, 240, 0.12);
+}
+
+.dark .rsPopTitle,
+body.dark .rsPopTitle {
+  color: #e2e8f0;
+}
+
+.dark .rsPopClose,
+body.dark .rsPopClose {
+  color: #cbd5f5;
+}
+
+.dark .rsPopClose:hover,
+body.dark .rsPopClose:hover {
+  background: rgba(148, 163, 184, 0.2);
+  color: #f8fafc;
+}
+
+.dark .rsDetails .k,
+body.dark .rsDetails .k {
+  color: #94a3b8;
+}
+
+.dark .rsDetails .v,
+body.dark .rsDetails .v {
+  color: #e2e8f0;
+}
+
+.dark .rsDetails a,
+body.dark .rsDetails a {
+  color: #93c5fd;
+}
+
+
+
+.menuToggleHolderInline {
+  border: none !important;
+}
+
+.menuToggleHolderInline:hover {
+  border: none !important;
+  background: rgba(0, 123, 255, 0.06);
+}
+
+/* Card URLs: short by default; pages can show .rsUrlFull instead (realitystream/js/run-panel.js Expansive layout) */
+.rsUrlFull { display: none; }
+
+/* Base YAML and Reset beside the parameter base: transparent bordered buttons (localsite .btn-clear),
+   with less rounded corners than localsite's pill-shaped .btn */
+a.rs-param-button,
+button.rs-param-button {
+  font-size: 14px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  line-height: 1.3;
+}

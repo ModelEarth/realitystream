@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Give each team member in GOOGLE_TEAM_EMAILS (comma-separated, in the shared env file) access to GOOGLE_PROJECT_ID.
-# Usage: ./add-team-members.sh        (also run by deploy-cloud-run.sh; safe to repeat)
+# Usage: ./deploy/add-team-members.sh        (also run by deploy-cloud-run.sh; safe to repeat)
 # Default roles are what Google requires to deploy to Cloud Run from source. Override with GOOGLE_TEAM_ROLES.
 # Removing an email from the list does not revoke access; use: gcloud projects remove-iam-policy-binding
 set -euo pipefail

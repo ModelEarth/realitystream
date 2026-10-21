@@ -9,7 +9,7 @@ Our main input is currently industry features by county ID (FIPS) for exploring 
 We are also preping data for [International Trade Flow](https://model.earth/profile/trade).
 
 
-[run-models-colab.py](models/run-models-colab.py) is the .py export of the [Run Models CoLab](https://colab.research.google.com/drive/1EFGEwh6v1-oYFTcNVCBOyl_HtfEC6INd?usp=sharing), kept for reference. The trimmed, runnable version of that notebook is [run_models.py](run_models.py) (see "Running RealityStream Locally" below).
+[run-models-colab.py](models/run-models-colab.py) is the .py export of the [Run Models CoLab](https://colab.research.google.com/drive/1EFGEwh6v1-oYFTcNVCBOyl_HtfEC6INd?usp=sharing), kept for reference. The trimmed, runnable version of that notebook is [api/run_models.py](api/run_models.py) (see "Running RealityStream Locally" below).
 
 - [Run Models CoLab](input/industries)
 - [Random Forests for Healthy Bees](../bee-data/)
@@ -80,12 +80,12 @@ AS y -- the povertyBinary for >= 2% in coming year, and no decline for current y
 -->
 ## Running RealityStream Locally (CLI)
 
-`run_models.py` is the colab pipeline as one importable module. It fetches features and targets from a parameters.yaml, trains the requested models twice (plain and SMOTE-balanced), and writes the same `report/` folder the colab pushes to [modelearth/reports](https://github.com/modelearth/reports).
+`api/run_models.py` is the colab pipeline as one importable module. It fetches features and targets from a parameters.yaml, trains the requested models twice (plain and SMOTE-balanced), and writes the same `report/` folder the colab pushes to [modelearth/reports](https://github.com/modelearth/reports).
 
     pip install -r requirements.txt
-    python run_models.py parameters/parameters.yaml
-    python run_models.py parameters/parameters-blinks.yaml --report-dir report --n-iter 20
-    python run_models.py parameters/parameters.yaml --upload      # also push report/ to modelearth/reports
+    python api/run_models.py parameters/parameters.yaml
+    python api/run_models.py parameters/parameters-blinks.yaml --report-dir report --n-iter 20
+    python api/run_models.py parameters/parameters.yaml --upload      # also push report/ to modelearth/reports
 
 Model keys for the YAML `models` list: `lr`, `rfc`, `rbf`, `svm`, `mlp`, `xgboost`. `rbf` is the Random Bits Forest binary, which runs on Linux only (Colab, Docker, Cloud Run); on Windows and macOS it is skipped with a warning.
 
@@ -113,7 +113,7 @@ When a key is missing, the CLI and the Flask `/run` endpoint explain where to ge
 
 ### Cloud Run
 
-`models/main.py` wraps the pipeline as `POST /run` (body: parameters.yaml text or JSON `{"parameters": "parameters-blinks.yaml"}`, `?upload=1` to push the report), plus `GET /parameters` and `GET /health`. `deploy-cloud-run.sh cpu|gpu` deploys it without a Dockerfile: Google Cloud buildpacks read `requirements.txt`, `Procfile` and `.python-version`, and `.gcloudignore` limits the upload. See [PLAN.md](PLAN.md).
+`api/main.py` wraps the pipeline as `POST /run` (body: parameters.yaml text or JSON `{"parameters": "parameters-blinks.yaml"}`, `?upload=1` to push the report), plus `GET /parameters` and `GET /health`. `deploy/deploy-cloud-run.sh cpu|gpu` deploys it without a Dockerfile: Google Cloud buildpacks read `requirements.txt`, `Procfile` and `.python-version`, and `.gcloudignore` limits the upload to `api/` and `parameters/`. Setup steps: [deploy/](deploy/). See also [AGENTS.md](AGENTS.md) and [PLAN.md](PLAN.md).
 
 ### Tests
 

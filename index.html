@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <link type="text/css" rel="stylesheet" href="/localsite/css/base.css" id="/localsite/css/base.css">
-<link type="text/css" rel="stylesheet" href="/cloud/run/css/param.css">
+<link type="text/css" rel="stylesheet" href="css/param.css">
 <script type="text/javascript" src="/localsite/js/localsite.js?showheader=true"></script>
 
 
@@ -52,11 +52,7 @@
 </script>
 
 <script>
-let externalSite = "https://model.earth"; // Since cloud repo is not always a submodule.
-if (location.host.indexOf('localhost') >= 0) {
-  externalSite = "..";
-}
-loadScript(externalSite + '/cloud/run/js/param-input.js', function() {
+loadScript('js/param-input.js', function() {
   loadBaseParamsSelect();
 
   // refresh AFTER param-input has had time to write YAML into #paramText pre
@@ -275,7 +271,7 @@ if (state.target?.kind === 'dcid' && state.target?.dcid) {
   history.replaceState(null, '', window.location.pathname + (newHash ? '#' + newHash : ''));
 }
 
-// Uses rsShowJoinStatus from cloud/run/js/param-input.js, shared with realitystream/models/
+// Uses rsShowJoinStatus from js/param-input.js, shared with realitystream/models/
 function updateJoinStatus() {
   const el = document.getElementById('rsJoinStatus');
   if (!el || typeof rsShowJoinStatus !== 'function') return;

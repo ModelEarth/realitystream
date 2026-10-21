@@ -6,15 +6,15 @@
 <title>RealityStream Run Models</title>
 <link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon">
 <!--
-  Home page of the RealityStream Cloud Run service, served at / by models/main.py.
+  Home page of the RealityStream Cloud Run service, served at / by api/main.py.
   {{ASSET_BASE}} is the webroot that shared files load from: https://model.earth/ on Cloud Run,
   or http://localhost:8887/ when testing locally (ASSET_BASE env var).
   The same shared files make up realitystream/models/:
-  cloud/run/js/param-input.js (parameter base, features and targets, YAML),
+  realitystream/js/param-input.js (parameter base, features and targets, YAML),
   realitystream/js/model-select.js (models and their details, from realitystream/models/README.md) and
   realitystream/js/run-panel.js (today's usage, SMOTE choice, Run button and results).
 -->
-<link rel="stylesheet" href="{{ASSET_BASE}}cloud/run/css/param.css">
+<link rel="stylesheet" href="{{ASSET_BASE}}realitystream/css/param.css">
 <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
 <script src="{{ASSET_BASE}}localsite/js/localsite.js?showheader=false"></script>
 <script src="{{ASSET_BASE}}localsite/js/showdown.min.js"></script>
@@ -67,10 +67,10 @@ Also at <a href="https://model.earth/realitystream/models/">model.earth/realitys
   <h2>API endpoints</h2>
   <div id="rsEndpoints"></div>
 </section>
-<p class="sub"><a href="https://github.com/ModelEarth/realitystream/blob/main/models/main.py">Source: models/main.py</a></p>
+<p class="sub"><a href="https://github.com/ModelEarth/realitystream/blob/main/api/main.py">Source: api/main.py</a></p>
 </main>
 
-<script src="{{ASSET_BASE}}cloud/run/js/param-input.js"></script>
+<script src="{{ASSET_BASE}}realitystream/js/param-input.js"></script>
 <script src="{{ASSET_BASE}}realitystream/js/model-select.js"></script>
 <script src="{{ASSET_BASE}}realitystream/js/run-panel.js"></script>
 </body>

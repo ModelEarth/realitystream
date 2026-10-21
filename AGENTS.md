@@ -1,0 +1,72 @@
+# RealityStream: AI CLI Guide
+
+Active processes for the Google Cloud deployment. Plans and status: [PLAN.md](PLAN.md). Older UI notes: [CLAUDE.md](CLAUDE.md). Webroot rules (secrets, git, styling) still apply: [../AGENTS.md](../AGENTS.md).
+
+## Layout
+
+| Folder | Contents |
+|---|---|
+| root | `index.html` (loads `about.md`, `projects.md`), docs, and `Procfile`, `requirements.txt`, `.python-version`, `.gcloudignore`, which buildpacks read from the deploy root |
+| `api/` | The Cloud Run service: `main.py` (Flask), `run_models.py` (pipeline and CLI), `home.html` (the service's home page), `keystore.py` (local key store) |
+| `deploy/` | `deploy-cloud-run.sh`, `add-team-members.sh`, `read-setting.sh`, and `README.md` with the Google Cloud setup steps |
+| `js/`, `css/` | Shared front end: `param-input.js`, `model-select.js`, `run-panel.js`, `param.css` |
+| `models/` | Run Models page (`index.html`), the model list (`README.md`), model subpages, `run-models-colab.py` |
+| `parameters/` | Preset YAMLs. Stays put: raw GitHub URLs in `parameter-paths.csv` and the Colab point here |
+| `archive/` | Older notebooks and `run_models_archive.py`. Not used by the service |
+
+## Two independent parts
+
+| Part | Files | Ships by |
+|---|---|---|
+| **Front end** (static) | `index.html`, `models/index.html`, `js/*`, `css/*`, `models/README.md` | Pushing to GitHub (model.earth Pages). Local: http://localhost:8887/realitystream/models/ |
+| **API** (Cloud Run service `realitystream`) | `api/*`, `parameters/*.yaml`, `requirements.txt`, `Procfile`, `.python-version` | `./deploy/deploy-cloud-run.sh` |
+
+The front end only sends YAML (the text of `#paramText pre`) to `POST /run`. Anything a page edits must end up in that YAML, and `api/run_models.py` must read it.
+
+`api/home.html` loads the shared JS and CSS from `{{ASSET_BASE}}realitystream/` (https://model.earth/ by default). JS changes reach the Cloud Run home page once they are pushed; a redeploy doesn't carry them.
+
+## API (`api/main.py`)
+
+`GET /` (HTML for browsers, usage JSON otherwise), `GET /health`, `GET /key`, `GET /parameters`, `POST /run[?upload=1][&smote=0|1]`, and `GET /keys` (local only, never on Cloud Run).
+
+- Team Passphrase: header `X-API-Key` matching `REALITYSTREAM_API_KEY` (Secret Manager `realitystream-api-key`). With it: 20 runs a day, any models, uploads. Without it: 1 run a day of 1 model.
+- Daily cost cap `DAILY_COST_LIMIT_USD` (default $0.20). Usage totals in Firestore (collection `usage`), reset at midnight Eastern.
+- CORS allows only https://model.earth and http://localhost:8887 (and 127.0.0.1:8887). Add origins in `ALLOWED_ORIGINS`.
+- Live URL: https://realitystream-kwr4qrkopq-uc.a.run.app (also https://realitystream-839376296196.us-central1.run.app), set as `RS_RUN_API` in `js/run-panel.js`.
+
+## Deploy
+
+Setup steps (project creation, billing, auth, Team Passphrase secret, local key store) are in [deploy/README.md](deploy/README.md), shown at model.earth/realitystream/deploy/.
+
+```bash
+cd realitystream
+./deploy/deploy-cloud-run.sh        # CPU service "realitystream": 4 vCPU, 2 GiB, timeout 3600, max 1 instance
+./deploy/deploy-cloud-run.sh gpu    # "realitystream-gpu": NVIDIA L4 (not yet in use, see PLAN.md)
+```
+
+- Needs `gcloud auth login`. Settings come from the environment or the env file named in `automation/paths.yaml`, through `deploy/read-setting.sh`: `GOOGLE_PROJECT_ID` (required), `GOOGLE_REGION` (default us-central1), `GOOGLE_TEAM_EMAILS`, `GOOGLE_TEAM_ROLES`. Never print their values.
+- The script also runs `deploy/add-team-members.sh` (IAM roles for team emails), downloads the Random Bits Forest binary into `models/random-bits-forest/rbf/`, and attaches the `realitystream-api-key` secret when it exists.
+- No Dockerfile: buildpacks read `requirements.txt`, `Procfile` and `.python-version`.
+- `.gcloudignore` uploads only `api/`, `parameters/`, the buildpack files and the RBF binary. A new file the service reads elsewhere needs a `!` line there. Check with `gcloud meta list-files-for-upload .`
+- `--max-instances 1` keeps the run and cost counters exact. Keep it.
+- Other settings `api/run_models.py` reads: `GITHUB_REPORTS_TOKEN` (for `upload=1`), `DATACOMMONS_API_KEY` (YAMLs with `dcid`), `ENABLE_GPU`. On Cloud Run, pass them with `--set-env-vars` or `--set-secrets`.
+- Logs: `gcloud logging read 'resource.type=cloud_run_revision AND resource.labels.service_name=realitystream' --limit 50 --project "$GOOGLE_PROJECT_ID"`
+
+## Local testing
+
+```bash
+cd realitystream
+pip install -r requirements.txt
+python api/run_models.py parameters/parameters-blinks.yaml   # pipeline only, writes report/
+python api/main.py                                    # API on port 8080, usage counted in memory, /keys page
+ASSET_BASE=http://localhost:8887/ python api/main.py  # home page loads your local shared JS
+python -m pytest tests                                # also runs in CI (.github/workflows/tests.yml)
+```
+
+To point http://localhost:8887/realitystream/models/ at the local API, set `data-api="http://localhost:8080/"` on `#rsRunControls` (read by `apiBase()` in `js/run-panel.js`). Don't commit that attribute.
+
+## Related repos
+
+- **cloud**: the older Papermill notebook-executor (`cloud/run/app.py`, port 8100, `start cloud`). Not part of this deploy. Its `cloud/run/index.html` loads `realitystream/js/param-input.js` in the `cloud-run` mode.
+- **profile**: `profile/item/index.html` also loads `js/param-input.js` and `css/param.css` from here.
+- **streamlit**: being archived. Its model forms inspire the parameter editing in PLAN.md.

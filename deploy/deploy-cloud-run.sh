@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
-# Deploy RealityStream to Cloud Run. Usage: ./deploy-cloud-run.sh [cpu|gpu]
+# Deploy RealityStream to Cloud Run. Usage: ./deploy/deploy-cloud-run.sh [cpu|gpu]
 # Needs: gcloud auth login, and GOOGLE_PROJECT_ID in the environment or in the env file named in automation/paths.yaml
 # No Dockerfile: Google Cloud buildpacks read requirements.txt, Procfile and .python-version.
 # --max-instances 1 keeps main.py's per-day run and spending counters exact.
 set -euo pipefail
-cd "$(dirname "$0")"
+# Deploy from the realitystream folder, where buildpacks find requirements.txt, Procfile and .gcloudignore
+cd "$(dirname "$0")/.."
 
-source ./read-setting.sh
+source deploy/read-setting.sh
 
 PROJECT="$(read_setting GOOGLE_PROJECT_ID)"
 REGION="$(read_setting GOOGLE_REGION)"
 REGION="${REGION:-us-central1}"
 if [ -z "$PROJECT" ]; then echo "Set GOOGLE_PROJECT_ID in the shared env file"; exit 1; fi
-./add-team-members.sh
+deploy/add-team-members.sh
 
 # Bundle the Random Bits Forest binary (Linux x86-64) in the upload so runs don't download it.
 # run_models.RandomBitsForest looks for it at this path; it's gitignored and kept by .gcloudignore.
@@ -29,7 +30,7 @@ if [ ! -x "$RBF" ]; then
 fi
 
 # API key: when the project has a realitystream-api-key secret, Cloud Run reads REALITYSTREAM_API_KEY from it.
-# Without a key, callers get 1 model once per day (see models/main.py).
+# Without a key, callers get 1 model once per day (see api/main.py).
 SECRETS_FLAG=""
 if gcloud secrets describe realitystream-api-key --project "$PROJECT" --quiet >/dev/null 2>&1; then
   SECRETS_FLAG="--set-secrets=REALITYSTREAM_API_KEY=realitystream-api-key:latest"
