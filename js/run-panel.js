@@ -483,6 +483,7 @@ a.rs-btn-shape { display:inline-block; text-decoration:none; }
     const path = document.querySelector('#rsRunControls .rs-output-path');
     const none = document.querySelector('#rsRunControls .rs-output-none');
     const time = document.querySelector('#rsRunControls .rs-run-time');
+    const pagesNote = document.querySelector('#rsRunControls .rs-pages-note');
     const github = document.querySelector('#rsRunControls .rs-github-status');
     if (!link) return;
     const url = data ? outputUrl(data) : '';
@@ -490,6 +491,8 @@ a.rs-btn-shape { display:inline-block; text-decoration:none; }
     link.hidden = path.hidden = !url;
     time.hidden = !data || data.run_secs == null;
     if (!time.hidden) time.textContent = `Run time: ${data.run_secs} second${data.run_secs === 1 ? '' : 's'}${url ? ':' : '.'}`;
+    // A pushed copy shows on the reports website once GitHub Pages rebuilds
+    pagesNote.hidden = !url || !(data.github && data.github.pushed_to);
     if (url) {
       link.href = path.href = url;
       path.textContent = data.output_path || 'reports/' + data.uploaded_to + '/';
@@ -653,6 +656,7 @@ a.rs-btn-shape { display:inline-block; text-decoration:none; }
 <div class="rs-output-row" hidden>
   <span class="rs-run-time" hidden></span>
   <a class="rs-output-path" target="_blank" rel="noopener" hidden></a>
+  <span class="rs-pages-note" hidden>Allow 20 seconds for GitHub to activate</span>
   <span class="rs-output-none" hidden></span>
 </div>
 <div class="rs-github-status" hidden></div>
