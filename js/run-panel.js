@@ -88,10 +88,11 @@
 .rs-run-label-note { font-weight:400; }
 .rs-report-dest { margin-top:10px; opacity:.85; }
 .rs-output-link { font-weight:600; }
+.rs-output-none { opacity:.85; }
 .rs-github-status { margin-top:8px; }
 .rs-smote { display:flex; flex-wrap:wrap; gap:6px 20px; }
 .rs-smote label { display:inline-flex; gap:6px; align-items:center; cursor:pointer; }
-.rs-run-actions { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-top:18px; }
+.rs-run-actions { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-top:18px; padding-bottom:10px; }
 /* Button shape shared by Run and Intro; button.rs-btn-shape outranks localsite's pill-shaped .btn.
    Border width and style only, so Intro keeps localsite's .btn-clear border color. */
 button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; padding:9px 22px; font-size:16px; line-height:1.25; cursor:pointer; }
@@ -371,36 +372,68 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
     return '';
   }
 
+  let lastRun = null; // The last successful run's reply, for showOutput()
+
+  const REPORTS_REPO_LINK = '<a href="https://github.com/modelearth/reports" target="_blank" rel="noopener">modelearth/reports</a>';
+  const START_LOCAL_API = 'To save output in your webroot, start the local API: <code>cd realitystream && python api/main.py</code>';
+
+  // A link to add GITHUB_REPORTS_TOKEN, on the local API's keys page
+  const keysLink = () => (apiIsLocal()
+    ? ` Add it on the <a href="${escapeHtml(apiBase())}keys" target="_blank" rel="noopener">local keys page</a>.` : '');
+
+  // The GitHub token line after the Run button, before a run (from the API's home JSON)
+  function tokenStatusHtml() {
+    if (!info) return '';
+    if (info.github_token === undefined) {
+      return 'GitHub token: this Cloud Run revision doesn\'t report it yet, and doesn\'t keep output folders (a redeploy adds both).';
+    }
+    if (info.github_token) {
+      return `GitHub token (GITHUB_REPORTS_TOKEN) is set: runs with the Team Passphrase are also pushed to ${REPORTS_REPO_LINK}.`;
+    }
+    return `GitHub token (GITHUB_REPORTS_TOKEN) is not set${info.saves_locally ? '' : ' on the Cloud Run service'}, `
+      + `so output isn't pushed to ${REPORTS_REPO_LINK}.` + keysLink();
+  }
+
+  // After the Run button: the output folder link (or why there's none) and the GitHub token line.
+  // data is a run's reply, or null to show the state before a run.
   function showOutput(data) {
     const link = document.querySelector('#rsRunControls .rs-output-link');
+    const none = document.querySelector('#rsRunControls .rs-output-none');
+    const github = document.querySelector('#rsRunControls .rs-github-status');
+    if (!link) return;
     const url = data ? outputUrl(data) : '';
     link.hidden = !url;
     if (url) {
       link.href = url;
       link.textContent = 'Output: ' + (data.output_path || 'reports/' + data.uploaded_to + '/');
     }
-    const github = document.querySelector('#rsRunControls .rs-github-status');
+    none.hidden = !data || !!url;
+    if (data && !url) {
+      none.innerHTML = 'No output folder: this run used the Cloud Run service, which keeps its output only by pushing it to GitHub.'
+        + (onLocalhost ? ' ' + START_LOCAL_API : '');
+    }
     const g = data && data.github;
-    github.hidden = !(g && g.message);
-    if (github.hidden) return;
-    github.innerHTML = escapeHtml(g.message.replace(/ Pushed to .*$/, ''))
-      + (g.pushed_to ? ` Pushed to <a href="https://github.com/modelearth/reports/tree/main/${escapeHtml(g.pushed_to)}" target="_blank" rel="noopener">modelearth/reports/${escapeHtml(g.pushed_to)}</a>.` : '')
-      + (!g.pushed_to && g.token === 'missing' && apiIsLocal() ? ' Add it on the <a href="' + escapeHtml(apiBase()) + 'keys" target="_blank" rel="noopener">local keys page</a>.' : '');
+    if (!data) {
+      github.innerHTML = tokenStatusHtml();
+    } else if (g && g.message) {
+      github.innerHTML = escapeHtml(g.message.replace(/ Pushed to .*$/, ''))
+        + (g.pushed_to ? ` Pushed to <a href="https://github.com/modelearth/reports/tree/main/${escapeHtml(g.pushed_to)}" target="_blank" rel="noopener">modelearth/reports/${escapeHtml(g.pushed_to)}</a>.` : '')
+        + (!g.pushed_to && g.token === 'missing' ? keysLink() : '');
+    } else {
+      github.innerHTML = 'GitHub token: this Cloud Run revision doesn\'t report it, so the output wasn\'t pushed (a redeploy adds this).';
+    }
+    github.hidden = !github.innerHTML;
   }
 
-  // Where runs go and whether they reach GitHub, before a run (from the API's home JSON)
+  // Where runs go, before a run (from the API's home JSON)
   function updateReportDest() {
     const el = document.querySelector('#rsRunControls .rs-report-dest');
     if (!el || !info) return;
-    const repo = '<a href="https://github.com/modelearth/reports" target="_blank" rel="noopener">modelearth/reports</a>';
-    const where = info.saves_locally
-      ? `Runs use your local API (${escapeHtml(apiBase())}), which saves each report in your webroot's <code>reports/{year}/run-{date-time}</code> folder.`
-      : 'Runs use the RealityStream Cloud Run service.'
-        + (onLocalhost ? ' To save reports in your webroot, start the local API: <code>python api/main.py</code>' : '');
-    const token = info.github_token === undefined ? ''
-      : info.github_token ? ` GITHUB_REPORTS_TOKEN is set, so runs with the Team Passphrase are also pushed to GitHub ${repo}.`
-        : ` GITHUB_REPORTS_TOKEN is not set${info.saves_locally ? '' : ' on this service'}, so reports aren't pushed to GitHub ${repo}.`;
-    el.innerHTML = where + token;
+    el.innerHTML = info.saves_locally
+      ? `Runs use your local API (${escapeHtml(apiBase())}), which saves each run's output in your webroot's <code>reports/{year}/run-{date-time}</code> folder.`
+      : 'Runs use the RealityStream Cloud Run service.' + (onLocalhost ? ' ' + START_LOCAL_API : '');
+    // refreshUsage() runs again after each run, so keep showing that run's output
+    if (!running) showOutput(lastRun);
   }
 
   async function runModels() {
@@ -429,6 +462,7 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
     const started = Date.now();
     const timer = setInterval(() => setStatus(`Running… ${Math.round((Date.now() - started) / 1000)} s`), 1000);
     setStatus('Running…');
+    lastRun = null;
     showOutput(null);
     try {
       const resp = await fetch(url, { method: 'POST', headers, body: yaml });
@@ -436,6 +470,7 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
       const secs = Math.round((Date.now() - started) / 1000);
       if (resp.ok && data.status === 'success') {
         showResults(data);
+        lastRun = data;
         showOutput(data);
         setStatus(`Finished in ${secs} s.`, 'ok');
       } else if (data.status === 'missing_key') {
@@ -514,6 +549,7 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
 <div class="rs-run-actions">
   <button type="button" class="rs-run-button rs-btn-shape">Run Models</button>
   <a class="rs-output-link" target="_blank" rel="noopener" hidden></a>
+  <span class="rs-output-none" hidden></span>
   <span class="rs-run-status"></span>
 </div>
 <div class="rs-github-status" hidden></div>
