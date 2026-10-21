@@ -18,7 +18,7 @@ Linked from [ModelEarth/projects #63](https://github.com/ModelEarth/projects/iss
 | Tree canopy generalization (#63): canopy and all-years YAMLs run unchanged, join aliases, FIPS padding, NAICS names | merged 2026-10-17 (PR #68, Oct 22 item) |
 | `timeseries` section in the canopy YAML | file is missing in tree-canopy; decision needed on what it should do |
 | Data Commons two-column targets | Nov 5 PR |
-| Repo layout: move what's in use from the cloud repo, and files out of the root (below) | approved 2026-10-21, in progress |
+| Repo layout: move what's in use from the cloud repo, and files out of the root (below) | done 2026-10-21; Cloud Run revision realitystream-00013-2jz |
 | Model parameter editing, from the Streamlit forms (below) | planned 2026-10-21, after the layout move |
 | Archive the streamlit repo | decided 2026-10-21 |
 
