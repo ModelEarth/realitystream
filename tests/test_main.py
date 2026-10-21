@@ -54,7 +54,8 @@ def test_settings_with_passphrase_run(monkeypatch):
                        headers={"X-API-Key": PASSPHRASE})
     assert resp.status_code == 200 and resp.get_json()["status"] == "success"
     # With the passphrase, the report is pushed to GitHub when the token is set ("auto")
-    assert calls == [{"report_dir": calls[0]["report_dir"], "upload": "auto", "smote": False, "name": calls[0]["name"]}]
+    assert calls == [{"report_dir": calls[0]["report_dir"], "upload": "auto", "smote": False, "name": calls[0]["name"],
+                      "token": None, "token_label": "GITHUB_REPORTS_TOKEN"}]
     assert _runs() == 1
 
 
@@ -77,3 +78,26 @@ def test_default_settings_without_passphrase_still_run(monkeypatch):
     client, calls = _client(monkeypatch)
     resp = client.post("/run", data=YAML)
     assert resp.status_code == 200 and len(calls) == 1
+
+
+def test_github_token_check_is_cached(monkeypatch):
+    client, _ = _client(monkeypatch)
+    main._github_checks.clear()
+    asked = []
+    monkeypatch.setattr(rm, "check_reports_token", lambda token, label: asked.append(label) or {"token": "invalid", "message": "m"})
+    assert client.get("/github-token").get_json()["token"] == "invalid"
+    assert client.get("/github-token").get_json()["source"] == "server"
+    assert len(asked) == 1
+    # A token saved in the browser is checked instead, and named as the browser's
+    data = client.get("/github-token", headers={"X-GitHub-Token": "browser-token"}).get_json()
+    assert data["source"] == "browser" and asked[-1] == main.BROWSER_TOKEN_LABEL and len(asked) == 2
+
+
+def test_browser_token_pushes_keyless_runs(monkeypatch):
+    client, calls = _client(monkeypatch)
+    resp = client.post("/run", data=YAML, headers={"X-GitHub-Token": "browser-token"})
+    assert resp.status_code == 200
+    assert calls[0]["upload"] == "auto" and calls[0]["token"] == "browser-token"
+    assert calls[0]["token_label"] == main.BROWSER_TOKEN_LABEL
+    assert "X-GitHub-Token" in client.options("/run", headers={"Origin": "http://localhost:8887"}).headers[
+        "Access-Control-Allow-Headers"]

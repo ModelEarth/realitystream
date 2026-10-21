@@ -81,7 +81,7 @@ function redirectToMainPage() {
 <script src="../js/run-panel.js"></script>
 <script src="../js/model-params.js"></script>
 <script>
-// Intro (back to RealityStream with the selected models) at the far right of the Run button.
+// Intro (back to RealityStream with the selected models) and Reports at the far right of the Run button.
 // run-panel.js builds the Run button when the page has loaded, so add Intro after that.
 document.addEventListener('DOMContentLoaded', () => {
   const runButton = document.querySelector('#rsRunControls .rs-run-button');
@@ -93,6 +93,14 @@ document.addEventListener('DOMContentLoaded', () => {
   introButton.textContent = 'Intro';
   introButton.addEventListener('click', redirectToMainPage);
   runButton.parentElement.appendChild(introButton);
+  // Reports (right of Intro): the GitHub reports repo, in a new tab
+  const reportsLink = document.createElement('a');
+  reportsLink.href = 'https://github.com/modelearth/reports';
+  reportsLink.target = '_blank';
+  reportsLink.rel = 'noopener';
+  reportsLink.className = 'btn btn-clear rs-btn-shape';
+  reportsLink.textContent = 'Reports';
+  runButton.parentElement.appendChild(reportsLink);
 });
 
 // The README's intro and closing text surround the settings; its model sections are in the picker

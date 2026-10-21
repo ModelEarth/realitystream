@@ -6,9 +6,10 @@ RealityStream serverless API for Google Cloud Run: Flask wrapper around run_mode
     GET  /health               liveness probe
     GET  /key                  whether header X-API-Key is valid
     GET  /parameters           preset YAML files in parameters/
+    GET  /github-token         whether GITHUB_REPORTS_TOKEN can push to modelearth/reports (asked of GitHub, cached 5 minutes);
+                               header X-GitHub-Token checks a token saved in the browser (keys/#need=GITHUB_REPORTS_TOKEN) instead
     GET  /model-params         settings the YAML's split, search and hyperparameters sections may set
                                (api/model-params.yaml), for the Common Settings panel and each model's fields
-    GET  /keys                 local only (not on Cloud Run): paste NAME=value lines into the OS credential store
     POST /run[?upload=1][&smote=0|1]
                                body = parameters.yaml text, or JSON {"parameters": "parameters-blinks.yaml"}
                                returns the run summary as JSON; smote=0 trains only without SMOTE,
@@ -18,7 +19,8 @@ Each run's report folder is named {year}/run-{date}T{time}. Run locally (not on 
 the webroot's reports folder (REPORTS_DIR overrides), and `output_path` (for example
 reports/2026/run-2026-10-21T14-05-00/) is its path from the webroot. With the Team Passphrase, the folder is
 also pushed to GitHub modelearth/reports when GITHUB_REPORTS_TOKEN is set; `github.message` says whether it
-was. upload=1 requires the push (HTTP 400 without the token).
+was. upload=1 requires the push (HTTP 400 without the token). Header X-GitHub-Token, a token saved in the
+browser, is pushed with in place of the setting, with or without the Team Passphrase.
 
 A YAML value that model-params.yaml doesn't allow returns HTTP 400 with `field` naming it, before the
 run is counted. A missing key (for example GITHUB_REPORTS_TOKEN when upload=1) returns HTTP 400 with
@@ -166,7 +168,7 @@ def add_cors_headers(response):
     origin = request.headers.get("Origin")
     if origin in ALLOWED_ORIGINS:
         response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-API-Key, Authorization"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-API-Key, X-GitHub-Token, Authorization"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return response
 
@@ -217,6 +219,7 @@ ENDPOINTS = {
     "GET /health": "Liveness probe",
     "GET /key": "Whether header X-API-Key is valid",
     "GET /parameters": "Preset YAML files in parameters/",
+    "GET /github-token": "Whether GITHUB_REPORTS_TOKEN (or header X-GitHub-Token) can push to modelearth/reports",
     "GET /model-params": "Settings the YAML's split, search and hyperparameters sections may set",
     "POST /run": 'Body = parameters.yaml text, or JSON {"parameters": "parameters-blinks.yaml"}. '
                  'Add ?smote=0 to train only without SMOTE, ?smote=1 only with SMOTE (omit to train both), '
@@ -264,9 +267,45 @@ def key():
     return jsonify({"key": key_status(), "api_key_enabled": api_key_enabled()}), 200
 
 
+BROWSER_TOKEN_LABEL = "GITHUB_REPORTS_TOKEN (from this browser)"
+
+
+def browser_github_token():
+    """The GitHub token the page sends from the browser's keys (header X-GitHub-Token), or ''. Never logged."""
+    return request.headers.get("X-GitHub-Token", "").strip()
+
+
 @app.route("/parameters", methods=["GET"])
 def parameters():
     return jsonify({"parameters": preset_files()}), 200
+
+
+# GitHub's answer about each token (by hash, so a changed token is checked again), for 5 minutes
+GITHUB_CHECK_SECONDS = 300
+GITHUB_CHECKS_KEPT = 100
+_github_checks = {}
+
+
+@app.route("/github-token", methods=["GET"])
+def github_token():
+    """Whether GITHUB_REPORTS_TOKEN, or the browser's token (header X-GitHub-Token), can push to the reports
+    repo, for the page's line after Run Models. source: "browser" or "server"."""
+    from run_models import check_reports_token, get_env
+
+    sent = browser_github_token()
+    token = sent or get_env("GITHUB_REPORTS_TOKEN", "") or ""
+    key = hashlib.sha256(token.encode()).hexdigest()
+    now = time.monotonic()
+    cached = _github_checks.get(key)
+    if not cached or now - cached[0] > GITHUB_CHECK_SECONDS:
+        cached = (now, check_reports_token(token, BROWSER_TOKEN_LABEL if sent else "GITHUB_REPORTS_TOKEN"))
+        if cached[1]["token"] != "unknown":  # Check again next time when GitHub couldn't answer
+            for old in [k for k, v in _github_checks.items() if now - v[0] > GITHUB_CHECK_SECONDS]:
+                del _github_checks[old]
+            if len(_github_checks) >= GITHUB_CHECKS_KEPT:
+                _github_checks.clear()
+            _github_checks[key] = cached
+    return jsonify({**cached[1], "source": "browser" if sent else "server"}), 200
 
 
 @app.route("/model-params", methods=["GET"])
@@ -371,10 +410,14 @@ def run():
             name = report_name()
             local = saves_locally()
             report_dir = os.path.join(REPORTS_DIR, *name.split("/")) if local else os.path.join(work, "report")
-            # Pushed to GitHub when the token is set (upload=1 requires it); keyless runs aren't pushed
-            push = True if upload else ("auto" if keyed else False)
+            # Pushed to GitHub when a token is available (upload=1 requires it). Keyless runs are pushed only
+            # with the browser's own token, not the service's.
+            sent = browser_github_token()
+            push = True if upload else ("auto" if keyed or sent else False)
             try:
-                summary = run_pipeline(yaml_path, report_dir=report_dir, upload=push, smote=smote, name=name)
+                summary = run_pipeline(yaml_path, report_dir=report_dir, upload=push, smote=smote, name=name,
+                                       token=sent or None,
+                                       token_label=BROWSER_TOKEN_LABEL if sent else "GITHUB_REPORTS_TOKEN")
             except MissingKey as exc:
                 return jsonify({"status": "missing_key", "key": exc.name, "how_to_get_it": exc.how_to_get_it}), 400
             summary.pop("report_dir", None)  # Not shown: on Cloud Run, a temporary folder removed after this request
@@ -385,97 +428,14 @@ def run():
                 summary["output_path"] = None if rel.startswith("..") else rel.replace(os.sep, "/") + "/"
             if not push:
                 summary["github"] = {"token": None, "pushed_to": None,
-                                     "message": "Reports are pushed to GitHub only with the Team Passphrase."}
+                                     "message": "Reports are pushed to GitHub only with the Team Passphrase "
+                                                "or a GITHUB_REPORTS_TOKEN saved in this browser."}
             return jsonify({"status": "success", "keyed": keyed, **summary}), 200
         except Exception as exc:
             return jsonify({"status": "error", "message": str(exc)}), 500
         finally:
             usage.add_time(time.monotonic() - started, today)
 
-
-
-# Local key store page (formerly cloud/run's /keys). Registered only outside Cloud Run, and answers only to
-# this computer: paste NAME=value lines, for example from a Google Doc, into the OS credential store
-# (api/keystore.py). Values are never shown again; the page lists names and today's read counts.
-KEYS_PAGE = """<!doctype html><meta charset="utf-8"><title>Local keys</title>
-<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 16px}
-textarea{width:100%;height:160px;font-family:monospace}table{border-collapse:collapse;margin:16px 0}
-td,th{border:1px solid #ccc;padding:4px 10px;text-align:left}.note{color:#555;font-size:.9em}</style>
-<h1>Local keys</h1>
-<p class="note">Stored in {backend}. Each line is <code>NAME=value</code>; blank lines and <code>#</code> comments are ignored.
-Values are never shown again. Daily read limit per key: {limit}.</p>
-<form method="post"><textarea name="lines" placeholder="GITHUB_REPORTS_TOKEN=ghp_...&#10;DATACOMMONS_API_KEY=AIza..."></textarea>
-<p><button type="submit">Store</button> {msg}</p></form>
-<table><tr><th>Name</th><th>Reads today</th><th></th></tr>{rows}</table>
-<p class="note">A key that must never be readable on this computer belongs in Secret Manager on Cloud Run, not here.</p>
-"""
-
-
-def keys_local_only():
-    """404 unless the request comes from this computer; a form post from another site gets 403."""
-    from flask import abort
-
-    if request.remote_addr not in ("127.0.0.1", "::1"):
-        abort(404)
-    origin = request.headers.get("Origin")
-    if request.method == "POST" and origin and origin != request.host_url.rstrip("/"):
-        abort(403)
-
-
-def keys_page():
-    import html
-
-    import keyring
-    import keystore
-
-    keys_local_only()
-    if not keystore.available():
-        return "No OS credential store is available on this machine.", 503
-    counts = keystore.reads_today()
-    rows = "".join(
-        f"<tr><td>{html.escape(n)}</td><td>{counts.get(n, 0)}</td>"
-        f"<td><form method='post' action='/keys/delete/{html.escape(n)}' style='margin:0'><button>delete</button></form></td></tr>"
-        for n in keystore.names()
-    ) or "<tr><td colspan=3>nothing stored yet</td></tr>"
-    page = KEYS_PAGE
-    for key, val in (("{backend}", type(keyring.get_keyring()).__name__), ("{limit}", str(keystore.DAILY_READ_LIMIT)),
-                     ("{rows}", rows), ("{msg}", html.escape(request.args.get("msg", "")))):
-        page = page.replace(key, val)
-    return page
-
-
-def keys_store():
-    from flask import redirect
-
-    import keystore
-
-    keys_local_only()
-    stored = 0
-    for line in request.form.get("lines", "").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        name, value = line.split("=", 1)
-        if name.strip() and value.strip():
-            keystore.set_key(name, value)
-            stored += 1
-    return redirect(f"/keys?msg=stored+{stored}")
-
-
-def keys_delete(name):
-    from flask import redirect
-
-    import keystore
-
-    keys_local_only()
-    keystore.delete_key(name)
-    return redirect("/keys?msg=deleted")
-
-
-if not os.environ.get("K_SERVICE"):  # Cloud Run sets K_SERVICE
-    app.add_url_rule("/keys", "keys_page", keys_page, methods=["GET"])
-    app.add_url_rule("/keys", "keys_store", keys_store, methods=["POST"])
-    app.add_url_rule("/keys/delete/<name>", "keys_delete", keys_delete, methods=["POST"])
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

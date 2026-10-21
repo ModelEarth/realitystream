@@ -479,3 +479,17 @@ def test_push_report_auto_without_token(tmp_path, monkeypatch):
         rm.push_report(str(tmp_path), True)
     assert rm.push_report(str(tmp_path), False) == (None, {"token": None, "pushed_to": None, "message": ""})
     assert re.fullmatch(r"\d{4}/run-\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d", rm.report_name())
+
+
+def test_check_reports_token(monkeypatch):
+    class Resp:
+        def __init__(self, code, body=None):
+            self.status_code, self.body = code, body or {}
+        def json(self):
+            return self.body
+    assert rm.check_reports_token("")["token"] == "missing"
+    for code, body, want in [(401, None, "invalid"), (200, {"permissions": {"push": True}}, "valid"),
+                             (200, {"permissions": {"push": False}}, "no_access"), (404, None, "no_access")]:
+        monkeypatch.setattr(rm.requests, "get", lambda *a, _r=Resp(code, body), **k: _r)
+        assert rm.check_reports_token("t")["token"] == want
+    assert "(from this browser)" in rm.check_reports_token("t", "GITHUB_REPORTS_TOKEN (from this browser)")["message"]

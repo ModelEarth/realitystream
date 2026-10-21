@@ -7,7 +7,7 @@ Active processes for the Google Cloud deployment. Plans and status: [PLAN.md](PL
 | Folder | Contents |
 |---|---|
 | root | `index.html` (loads `about.md`, `projects.md`), docs, and `Procfile`, `requirements.txt`, `.python-version`, `.gcloudignore`, which buildpacks read from the deploy root |
-| `api/` | The Cloud Run service: `main.py` (Flask), `run_models.py` (pipeline and CLI), `home.html` (the service's home page), `keystore.py` (local key store) |
+| `api/` | The Cloud Run service: `main.py` (Flask), `run_models.py` (pipeline and CLI), `home.html` (the service's home page), `keystore.py` (local key store, command line) |
 | `deploy/` | `deploy-cloud-run.sh`, `add-team-members.sh`, `read-setting.sh`, and `README.md` with the Google Cloud setup steps |
 | `js/`, `css/` | Shared front end: `param-input.js`, `model-select.js`, `run-panel.js`, `model-params.js`, `param.css` |
 | `models/` | Run Models page (`index.html`), the model list (`README.md`), model subpages, `run-models-colab.py` |
@@ -27,11 +27,11 @@ The front end only sends YAML (the text of `#paramText pre`) to `POST /run`. Any
 
 ## API (`api/main.py`)
 
-`GET /` (HTML for browsers, usage JSON otherwise), `GET /health`, `GET /key`, `GET /parameters`, `GET /model-params`, `POST /run[?upload=1][&smote=0|1]`, and `GET /keys` (local only, never on Cloud Run).
+`GET /` (HTML for browsers, usage JSON otherwise), `GET /health`, `GET /key`, `GET /github-token` (whether GITHUB_REPORTS_TOKEN, or header X-GitHub-Token, can push, cached 5 minutes), `GET /parameters`, `GET /model-params`, and `POST /run[?upload=1][&smote=0|1]`.
 
 - Team Passphrase: header `X-API-Key` matching `REALITYSTREAM_API_KEY` (Secret Manager `realitystream-api-key`). With it: 20 runs a day, any models, uploads. Without it: 1 run a day of 1 model. The page's Active mode also limits a run to 2 models (`MODEL_LIMIT` in `js/run-panel.js`); the service doesn't.
 - Model settings: the YAML's `split`, `search` and `hyperparameters` sections, defined in `api/model-params.yaml` (served at `/model-params`). `run_models.validate_parameters` checks them, and `/run` returns HTTP 400 with `field` before the run is counted. Without the Team Passphrase, any of these sections gets HTTP 403 `key_needed`. A schema default for a field that isn't searched must match `make_model()`; a test checks this.
-- Reports: each run writes a `{year}/run-{date}T{time}` folder with an `index.html` (localsite's `start/template/report.html`) and a `files.json` listing the folder's files, which the page shows (localsite's `displayCharts()`). The local API saves it in the webroot's `reports/` (the reports repo; `REPORTS_DIR` overrides) and returns `output_path`, which the page links after the Run button. On Cloud Run the folder is temporary. With the Team Passphrase and `GITHUB_REPORTS_TOKEN` set, the folder is also pushed to GitHub modelearth/reports, and `github.message` (shown below the Run button) says whether it was. `GET /` reports `github_token` (true or false, never the value). `models: []` trains no models and still writes the folder.
+- Reports: each run writes a `{year}/run-{date}T{time}` folder with an `index.html` (localsite's `start/template/report.html`) and a `files.json` listing the folder's files, which the page shows (localsite's `displayCharts()`). The local API saves it in the webroot's `reports/` (the reports repo; `REPORTS_DIR` overrides) and returns `output_path`, which the page links after the Run button. On Cloud Run the folder is temporary. With the Team Passphrase and `GITHUB_REPORTS_TOKEN` set, the folder is also pushed to GitHub modelearth/reports, and `github.message` (shown below the Run button) says whether it was. A token saved in the browser on the webroot's keys page (`keys/#need=GITHUB_REPORTS_TOKEN`, provider `github-reports`) is sent by the page as header `X-GitHub-Token` on `/run` and `/github-token`, and is pushed with instead of the service's, with or without the Team Passphrase. `GET /` reports `github_token` (true or false, never the value). `models: []` trains no models and still writes the folder.
 - Daily cost cap `DAILY_COST_LIMIT_USD` (default $0.20). Usage totals in Firestore (collection `usage`), reset at midnight Eastern.
 - CORS allows only https://model.earth and http://localhost:8887 (and 127.0.0.1:8887). Add origins in `ALLOWED_ORIGINS`.
 - Live URL: https://realitystream-kwr4qrkopq-uc.a.run.app (also https://realitystream-839376296196.us-central1.run.app), set as `RS_RUN_API` in `js/run-panel.js`.
@@ -60,7 +60,7 @@ cd realitystream
 cd realitystream
 pip install -r requirements.txt
 python api/run_models.py parameters/parameters-blinks.yaml   # pipeline only, writes report/
-python api/main.py                                    # API on port 8080, usage counted in memory, /keys page
+python api/main.py                                    # API on port 8080, usage counted in memory
 ASSET_BASE=http://localhost:8887/ python api/main.py  # home page loads your local shared JS
 python -m pytest tests                                # also runs in CI (.github/workflows/tests.yml)
 ```

@@ -9,13 +9,15 @@
 // Each run writes a report folder ({year}/run-{date}T{time}, with an index.html). The local API saves it
 // in the webroot's reports folder, and the link after the Run button opens it. With GITHUB_REPORTS_TOKEN
 // set, the same folder is pushed to GitHub modelearth/reports, and a line below the button says whether it was.
+// A GITHUB_REPORTS_TOKEN saved in this browser on the keys page (webroot keys/, #need=GITHUB_REPORTS_TOKEN)
+// is sent as header X-GitHub-Token and used in place of the service's, also without the Team Passphrase.
 // The YAML posted to /run is the text of #paramText pre, which param-input.js, model-select.js and
 // model-params.js keep up to date.
 //
 // Preview and Active modes (switch at the top right of the page, remembered per browser):
 //   Preview (default)  anyone may check any models and edit every field; Run Models is gray.
 //   Active             shows the Team Passphrase field. Until a working passphrase is entered, every
-//                      other field is greyed out. Runs are limited to MODEL_LIMIT models (1 without the
+//                      other field except the Base parameters dropdown is greyed out. Runs are limited to MODEL_LIMIT models (1 without the
 //                      passphrase, as the service allows), with a note above the model checkboxes.
 //
 // Events for model-params.js: rsModeChange (detail.mode, and detail.locked: true in Active mode without a
@@ -43,6 +45,9 @@
   const MODEL_LIMIT = 2;
 
   const LOCAL_API_PORT = 8080;
+
+  // The webroot's keys/ page, beside realitystream/. Its key manager holds a GITHUB_REPORTS_TOKEN saved in this browser.
+  const KEYS_BASE = new URL('../../keys/', (document.currentScript && document.currentScript.src) || location.href).href;
 
   const $ = id => document.getElementById(id);
   const onLocalhost = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
@@ -87,15 +92,23 @@
 .rs-run-label { font-weight:600; margin:16px 0 6px; }
 .rs-run-label-note { font-weight:400; }
 .rs-report-dest { margin-top:10px; opacity:.85; }
-.rs-output-link { font-weight:600; }
+/* The line after Run Models: a green View Output button and the report's path */
+.rs-output-row { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; margin-bottom:10px; }
+a.rs-output-link { display:inline-block; border-radius:8px; padding:9px 22px; font-size:16px; line-height:1.25;
+  background:#2e8b57; color:#fff; text-decoration:none; }
+a.rs-output-link:hover { background:#256f46; color:#fff; }
+.rs-output-path { font-family:monospace; font-size:14px; word-break:break-all; opacity:.85; }
 .rs-output-none { opacity:.85; }
+.rs-token-warning { color:#c2410c; } .dark .rs-token-warning { color:#fb923c; }
+.rs-token-warning a { color:inherit; text-decoration:underline; }
 .rs-github-status { margin-top:8px; }
 .rs-smote { display:flex; flex-wrap:wrap; gap:6px 20px; }
 .rs-smote label { display:inline-flex; gap:6px; align-items:center; cursor:pointer; }
 .rs-run-actions { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-top:18px; padding-bottom:10px; }
 /* Button shape shared by Run and Intro; button.rs-btn-shape outranks localsite's pill-shaped .btn.
    Border width and style only, so Intro keeps localsite's .btn-clear border color. */
-button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; padding:9px 22px; font-size:16px; line-height:1.25; cursor:pointer; }
+button.rs-btn-shape, a.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; padding:9px 22px; font-size:16px; line-height:1.25; cursor:pointer; }
+a.rs-btn-shape { display:inline-block; text-decoration:none; }
 .rs-run-button { background:#2f6fde; color:#fff; border-color:transparent; }
 .rs-run-button:disabled { opacity:.6; cursor:default; }
 .rs-run-button:hover:not(:disabled) { background:#2558b8; }
@@ -112,7 +125,7 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
 .rs-mode-switch button[aria-pressed="true"] { background:#2f6fde; color:#fff; }
 /* Greyed out in Active mode until the Team Passphrase is entered (the elements are also inert) */
 .rs-locked { opacity:.5; }
-/* A page's extra button at the far right of the Run row (Intro on realitystream/models/, which uses
+/* A page's extra buttons at the far right of the Run row (Intro and Reports on realitystream/models/, which use
    localsite's transparent .btn-clear with the .rs-btn-shape shape) */
 .rs-intro-button { margin-left:auto; }
 .rs-layout-switch { margin-left:auto; display:inline-flex; border:1px solid rgba(127,127,127,.35); border-radius:8px; overflow:hidden; font-size:13px; font-weight:400; }
@@ -189,15 +202,18 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
       + `<a href="${url}" target="_blank" rel="noopener">your own Google Cloud account</a>.`;
   }
 
-  // Settings fields to grey out while locked: the Settings section except its heading and the Run row,
-  // and the SMOTE choice (model-select.js and model-params.js grey out their own fields)
+  // Never locked: the Base parameters dropdown (param-input.js moves #parambase into #parambase-row)
+  const ALWAYS_ACTIVE = ['parambase-row', 'parambase'];
+
+  // Settings fields to grey out while locked: the Settings section except its heading, the Base parameters
+  // row and the Run row, and the SMOTE choice (model-select.js and model-params.js grey out their own fields)
   function lockables() {
     const controls = $('rsRunControls');
     const list = Array.from(document.querySelectorAll('#rsRunControls .rs-smote, #rsRunControls .rs-smote-label'));
     const section = document.querySelector('[data-rs-layout]');
     if (section) {
       Array.from(section.children).forEach(el => {
-        if (el.tagName !== 'H2' && !el.contains(controls)) list.push(el);
+        if (el.tagName !== 'H2' && !el.contains(controls) && !ALWAYS_ACTIVE.includes(el.id)) list.push(el);
       });
     }
     return list;
@@ -207,6 +223,11 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
     lockables().forEach(el => {
       el.classList.toggle('rs-locked', locked);
       if (locked) el.setAttribute('inert', ''); else el.removeAttribute('inert');
+    });
+    // The dropdown may have been locked before param-input.js moved it into its row
+    ALWAYS_ACTIVE.forEach(id => {
+      const el = $(id);
+      if (el) { el.classList.remove('rs-locked'); el.removeAttribute('inert'); }
     });
     const editor = $('paramText');
     if (editor) editor.setAttribute('contenteditable', locked ? 'false' : 'true');
@@ -372,17 +393,64 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
     return '';
   }
 
-  let lastRun = null; // The last successful run's reply, for showOutput()
+  let lastRun = null;    // The last successful run's reply, for showOutput()
+  let tokenCheck = null; // GET /github-token: whether GITHUB_REPORTS_TOKEN can push (null on an older service)
+
+  let keyManagerLoad = null;
+  function loadKeyManager() {
+    if (window.KeyManager) return Promise.resolve(window.KeyManager);
+    if (!keyManagerLoad) {
+      keyManagerLoad = new Promise(resolve => {
+        const script = document.createElement('script');
+        script.src = KEYS_BASE + 'key-manager.js';
+        script.onload = () => resolve(window.KeyManager || null);
+        script.onerror = () => resolve(null);
+        setTimeout(() => resolve(window.KeyManager || null), 3000); // Without keys/, runs go on without it
+        document.head.appendChild(script);
+      });
+    }
+    return keyManagerLoad;
+  }
+
+  // The GITHUB_REPORTS_TOKEN saved in this browser on the keys page, or ''
+  function browserGithubToken() {
+    return loadKeyManager()
+      .then(km => (km ? km.initCrypto().then(() => km.get('github-reports') || '') : ''))
+      .catch(() => '');
+  }
+  const githubHeader = token => (token ? { 'X-GitHub-Token': token } : {});
+
+  let checkedToken = null; // The browser token the last check sent, to check again when it changes
+  // Ask the API whether GITHUB_REPORTS_TOKEN works (the browser's, else the service's), when the page loads
+  // and when the page regains focus with a different browser token (saved on the keys page in another tab)
+  function checkGithubToken() {
+    return browserGithubToken().then(token => {
+      if (token === checkedToken) return;
+      checkedToken = token;
+      return fetch(apiBase() + 'github-token', { cache: 'no-store', headers: githubHeader(token) })
+        .then(r => (r.ok ? r.json() : null))
+        .catch(() => null)
+        .then(result => {
+          tokenCheck = result && result.token ? result : null;
+          if (!running) showOutput(lastRun);
+        });
+    });
+  }
+
+  // A token that won't push: shown in red
+  const tokenNotViable = t => ['missing', 'invalid', 'no_access'].includes(t);
 
   const REPORTS_REPO_LINK = '<a href="https://github.com/modelearth/reports" target="_blank" rel="noopener">modelearth/reports</a>';
   const START_LOCAL_API = 'To save output in your webroot, start the local API: <code>cd realitystream && python api/main.py</code>';
 
-  // A link to add GITHUB_REPORTS_TOKEN, on the local API's keys page
-  const keysLink = () => (apiIsLocal()
-    ? ` Add it on the <a href="${escapeHtml(apiBase())}keys" target="_blank" rel="noopener">local keys page</a>.` : '');
+  // A link to save GITHUB_REPORTS_TOKEN in this browser, on the keys page showing just that key
+  const keysLink = () => `<br>Add it on the <a href="${escapeHtml(KEYS_BASE)}#need=GITHUB_REPORTS_TOKEN" target="_blank" rel="noopener">keys page</a>`
+    + ' to push this browser\'s runs with your own token.';
 
-  // The GitHub token line after the Run button, before a run (from the API's home JSON)
+  // The GitHub token line after the Run button, before a run: GitHub's answer about the token
+  // (GET /github-token), else whether it's set (the API's home JSON, on a service without that endpoint)
   function tokenStatusHtml() {
+    if (tokenCheck) return escapeHtml(tokenCheck.message) + (tokenNotViable(tokenCheck.token) ? keysLink() : '');
     if (!info) return '';
     if (info.github_token === undefined) {
       return 'GitHub token: this Cloud Run revision doesn\'t report it yet, and doesn\'t keep output folders (a redeploy adds both).';
@@ -394,18 +462,21 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
       + `so output isn't pushed to ${REPORTS_REPO_LINK}.` + keysLink();
   }
 
-  // After the Run button: the output folder link (or why there's none) and the GitHub token line.
+  // View Output to the left of the Run button, the report's path (or why there's none) on the next line, then the GitHub token line.
   // data is a run's reply, or null to show the state before a run.
   function showOutput(data) {
+    const row = document.querySelector('#rsRunControls .rs-output-row');
     const link = document.querySelector('#rsRunControls .rs-output-link');
+    const path = document.querySelector('#rsRunControls .rs-output-path');
     const none = document.querySelector('#rsRunControls .rs-output-none');
     const github = document.querySelector('#rsRunControls .rs-github-status');
     if (!link) return;
     const url = data ? outputUrl(data) : '';
-    link.hidden = !url;
+    row.hidden = !data;
+    link.hidden = path.hidden = !url;
     if (url) {
       link.href = url;
-      link.textContent = 'Output: ' + (data.output_path || 'reports/' + data.uploaded_to + '/');
+      path.textContent = data.output_path || 'reports/' + data.uploaded_to + '/';
     }
     none.hidden = !data || !!url;
     if (data && !url) {
@@ -413,16 +484,20 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
         + (onLocalhost ? ' ' + START_LOCAL_API : '');
     }
     const g = data && data.github;
+    let warn = false;
     if (!data) {
       github.innerHTML = tokenStatusHtml();
+      warn = tokenCheck ? tokenNotViable(tokenCheck.token) : !!info && info.github_token === false;
     } else if (g && g.message) {
       github.innerHTML = escapeHtml(g.message.replace(/ Pushed to .*$/, ''))
         + (g.pushed_to ? ` Pushed to <a href="https://github.com/modelearth/reports/tree/main/${escapeHtml(g.pushed_to)}" target="_blank" rel="noopener">modelearth/reports/${escapeHtml(g.pushed_to)}</a>.` : '')
-        + (!g.pushed_to && (g.token === 'missing' || g.token === 'invalid') ? keysLink() : '');
+        + (!g.pushed_to && (g.token === 'missing' || g.token === 'invalid' || g.token === null) ? keysLink() : '');
+      warn = !g.pushed_to && (g.token === 'missing' || g.token === 'invalid' || g.token === 'available');
     } else {
       github.innerHTML = 'GitHub token: this Cloud Run revision doesn\'t report it, so the output wasn\'t pushed (a redeploy adds this).';
     }
     github.hidden = !github.innerHTML;
+    github.classList.toggle('rs-token-warning', warn);
   }
 
   // Where runs go, before a run (from the API's home JSON)
@@ -462,9 +537,10 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
     const started = Date.now();
     const timer = setInterval(() => setStatus(`Running… ${Math.round((Date.now() - started) / 1000)} s`), 1000);
     setStatus('Running…');
-    lastRun = null;
+    lastRun = null; // View Output stays hidden until this run's report is generated
     showOutput(null);
     try {
+      Object.assign(headers, githubHeader(await browserGithubToken()));
       const resp = await fetch(url, { method: 'POST', headers, body: yaml });
       const data = await resp.json().catch(() => ({}));
       const secs = Math.round((Date.now() - started) / 1000);
@@ -547,10 +623,13 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
 <div class="rs-free-note" style="display:none"></div>
 <div class="rs-run-hint" hidden>Change to <a href="#" class="rs-go-active">active mode</a> to generate output.</div>
 <div class="rs-run-actions">
+  <a class="rs-output-link" target="_blank" rel="noopener" hidden>View Output</a>
   <button type="button" class="rs-run-button rs-btn-shape">Run Models</button>
-  <a class="rs-output-link" target="_blank" rel="noopener" hidden></a>
-  <span class="rs-output-none" hidden></span>
   <span class="rs-run-status"></span>
+</div>
+<div class="rs-output-row" hidden>
+  <span class="rs-output-path" hidden></span>
+  <span class="rs-output-none" hidden></span>
 </div>
 <div class="rs-github-status" hidden></div>
 <div class="rs-report-dest"></div>`;
@@ -597,7 +676,8 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
     }
     initLayoutSwitch();
     applyKeyMode();
-    ready.then(refreshUsage).then(() => checkKey(false));
+    ready.then(() => { checkGithubToken(); return refreshUsage(); }).then(() => checkKey(false));
+    window.addEventListener('focus', () => ready.then(checkGithubToken));
   }
 
   // In-page confirmation with Yes / No buttons (instead of the browser's confirm dialog)

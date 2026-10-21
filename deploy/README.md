@@ -76,9 +76,9 @@ Runs with the Team Passphrase push their output folder to GitHub modelearth/repo
 
 ## Local key store
 
-Run `python api/main.py` from the realitystream folder and open [localhost:8080/keys](http://localhost:8080/keys). The page is added only outside Cloud Run and answers only to this computer. Paste `NAME=value` lines, for example copied from a Google Doc, and each is written to the OS credential store (Windows Credential Manager, macOS Keychain, Linux Secret Service) under the app name `modelearth`. Values are never shown again; the page lists names and today's read counts, with a delete button.
+`python api/keystore.py list|set|get|delete NAME` keeps keys in the OS credential store (Windows Credential Manager, macOS Keychain, Linux Secret Service) under the app name `modelearth`. `set` asks for the value without showing it.
 
-Command line: `python api/keystore.py list|set|get|delete NAME` (`set` asks for the value without showing it).
+To push Run Models output with your own GitHub token instead, save `GITHUB_REPORTS_TOKEN` on the webroot's keys page ([localhost:8887/keys/#need=GITHUB_REPORTS_TOKEN](http://localhost:8887/keys/#need=GITHUB_REPORTS_TOKEN)). It stays in the browser, and the Run Models page sends it with each run.
 
 `api/run_models.py` checks the store before the env file, one name at a time. Reads through `api/keystore.py` are capped at `DAILY_KEY_READS` a day per name (default 50).
 

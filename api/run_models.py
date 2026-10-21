@@ -1201,18 +1201,42 @@ def _warn_timeseries(param):
     print(f"  [WARN] timeseries.path is {state} and not used yet: {ts_path}")
 
 
-def push_report(report_dir, upload, name=None):
+def check_reports_token(token=None, label="GITHUB_REPORTS_TOKEN"):
+    """Whether GITHUB_REPORTS_TOKEN can push to the reports repo, asked of GitHub. Returns
+    {"token": "valid" | "missing" | "invalid" | "no_access" | "unknown", "message": text for the page}. Never the value.
+    label names the token in messages, for one sent from the browser."""
+    token = token if token is not None else get_env("GITHUB_REPORTS_TOKEN")
+    if not token:
+        return {"token": "missing", "message": f"{label} is not set, so output isn't pushed to GitHub."}
+    try:
+        resp = requests.get(f"https://api.github.com/repos/{REPORTS_REPO}", timeout=15,
+                            headers={"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"})
+    except Exception:
+        return {"token": "unknown", "message": f"GitHub could not be reached to check {label}."}
+    if resp.status_code == 401:
+        return {"token": "invalid", "message": f"GitHub rejects {label}: it has expired or been revoked (401), "
+                                                "so output won't be pushed to GitHub."}
+    if resp.status_code == 200 and (resp.json().get("permissions") or {}).get("push"):
+        return {"token": "valid", "message": f"{label} works: output is pushed to {REPORTS_REPO}."}
+    if resp.status_code in (200, 403, 404):
+        return {"token": "no_access", "message": f"{label} can't write to {REPORTS_REPO}, so output won't be "
+                                                  "pushed to GitHub. It needs write access (Contents) to that repo."}
+    return {"token": "unknown", "message": f"GitHub answered HTTP {resp.status_code} when checking {label}."}
+
+
+def push_report(report_dir, upload, name=None, token=None, label="GITHUB_REPORTS_TOKEN"):
     """Push the report folder to the reports repo. upload: True (GITHUB_REPORTS_TOKEN required), False
     (don't), or "auto" (push when the token is available). Returns (uploaded_to or None, github status):
-    {"token": "available" | "missing" | None, "pushed_to": path or None, "message": text for the page}."""
+    {"token": "available" | "missing" | None, "pushed_to": path or None, "message": text for the page}.
+    token: one sent from the browser, used in place of the setting; label names it in messages."""
     if not upload:
         return None, {"token": None, "pushed_to": None, "message": ""}
-    token = get_env("GITHUB_REPORTS_TOKEN")
+    token = token or get_env("GITHUB_REPORTS_TOKEN")
     if not token:
         if upload != "auto":
             raise MissingKey("GITHUB_REPORTS_TOKEN")
         return None, {"token": "missing", "pushed_to": None,
-                      "message": "GITHUB_REPORTS_TOKEN is not set, so the report wasn't pushed to GitHub."}
+                      "message": f"{label} is not set, so the report wasn't pushed to GitHub."}
     year, subfolder = (name or report_name()).split("/")
     try:
         pushed = upload_reports(report_dir, year=year, subfolder=subfolder, token=token)
@@ -1220,23 +1244,25 @@ def push_report(report_dir, upload, name=None):
         print(f"  [WARN] GitHub push failed: {exc}")
         status = getattr(getattr(exc, "response", None), "status_code", None)
         if status == 401:
-            message = ("GitHub rejected GITHUB_REPORTS_TOKEN (401), so it has expired or been revoked. "
+            message = (f"GitHub rejected {label}: it has expired or been revoked (401). "
                        "Create a new one at https://github.com/settings/tokens and replace it.")
         elif status in (403, 404):
-            message = (f"GITHUB_REPORTS_TOKEN can't write to {REPORTS_REPO} (HTTP {status}). "
+            message = (f"{label} can't write to {REPORTS_REPO} (HTTP {status}). "
                        "It needs write access (Contents) to that repo.")
         else:
-            message = f"GITHUB_REPORTS_TOKEN is set, but the push to GitHub failed: {exc}"
+            message = f"{label} is set, but the push to GitHub failed: {exc}"
         return None, {"token": "invalid" if status == 401 else "available", "pushed_to": None, "message": message}
     return pushed, {"token": "available", "pushed_to": pushed,
-                    "message": f"GITHUB_REPORTS_TOKEN is set. Pushed to {REPORTS_REPO}/{pushed}."}
+                    "message": f"{label} is set. Pushed to {REPORTS_REPO}/{pushed}."}
 
 
-def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=None, smote=None, name=None):
+def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=None, smote=None, name=None,
+                 token=None, token_label="GITHUB_REPORTS_TOKEN"):
     """Load params -> fetch data -> train (plain and SMOTE) -> write report folder -> optional upload.
 
     smote: None trains both without and with SMOTE, False only without, True only with.
     upload: True, False or "auto" (push_report). name: the {year}/run-{date-time} folder it pushes to.
+    token: a GitHub token sent from the browser, pushed with in place of GITHUB_REPORTS_TOKEN (token_label names it).
     With `models: []` no model is trained, and the report folder still has the parameters and baseline.
     An optional ``evaluation:`` block in the YAML adds k-fold cross-validation (``model_performance_cv.csv``
     and the "cv" return key); the existing report files and behaviour are unchanged when it is absent.
@@ -1303,7 +1329,7 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=None, smot
         cv = {"mode": cv_used, "folds": folds, "results": cv_results}
 
     write_file_list(report_dir)
-    uploaded, github = push_report(report_dir, upload, name)
+    uploaded, github = push_report(report_dir, upload, name, token=token, label=token_label)
     print("\n[DONE]")
     summary = {
         "folder": params.get("folder"),
