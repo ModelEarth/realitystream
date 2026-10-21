@@ -44,8 +44,6 @@ hyperparameters:
 - Results show each model's `params_used`.
 - Logistic Regression keeps a `penalty` choice. scikit-learn 1.8 deprecated that argument, so `run_models._lr_kwargs` translates it to `l1_ratio` and `C`.
 
-Not carried over from Streamlit: the text vectorizer (our features are tabular) and `n_jobs` (a server setting).
-
 Later:
 
 - A data preview before a run: rows, class balance, missing values.

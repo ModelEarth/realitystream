@@ -70,4 +70,3 @@ To point the local page at the local API, open http://localhost:8887/realitystre
 
 - **cloud**: the older Papermill notebook-executor (`cloud/run/app.py`, port 8100, `start cloud`). Not part of this deploy. Its `cloud/run/index.html` loads `realitystream/js/param-input.js` in the `cloud-run` mode.
 - **profile**: `profile/item/index.html` also loads `js/param-input.js` and `css/param.css` from here.
-- **streamlit**: archived 2026-10-21 (ModelEarth/streamlit, no longer a webroot submodule). Its model forms inspire the parameter editing in PLAN.md.
