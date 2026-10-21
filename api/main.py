@@ -9,7 +9,7 @@ RealityStream serverless API for Google Cloud Run: Flask wrapper around run_mode
     GET  /github-token         whether GITHUB_REPORTS_TOKEN can push to modelearth/reports (asked of GitHub, cached 5 minutes);
                                header X-GitHub-Token checks a token saved in the browser (keys/#need=GITHUB_REPORTS_TOKEN) instead
     GET  /model-params         settings the YAML's split, search and hyperparameters sections may set
-                               (api/model-params.yaml), for the Common Settings panel and each model's fields
+                               (api/model-params.yaml), for the Common Parameters panel and each model's fields
     POST /run[?upload=1][&smote=0|1]
                                body = parameters.yaml text, or JSON {"parameters": "parameters-blinks.yaml"}
                                returns the run summary as JSON; smote=0 trains only without SMOTE,
@@ -230,7 +230,9 @@ SOURCE_URL = "https://github.com/ModelEarth/realitystream/blob/main/api/main.py"
 
 HOME_PAGE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "home.html")
 # Webroot the home page loads shared files from (param-input.js, model-select.js, localsite.js).
-# Set ASSET_BASE=http://localhost:8887/ to test local changes to those files.
+# Set ASSET_BASE=http://localhost:8887/ to test local changes to those files, but only with a webroot server that
+# sends Access-Control-Allow-Origin: python -m http.server doesn't, so the page couldn't fetch the parameter
+# list, YAMLs or models README from it, and Settings would show no Base parameters, Features or Target.
 ASSET_BASE = os.environ.get("ASSET_BASE", "https://model.earth/")
 
 

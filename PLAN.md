@@ -30,7 +30,7 @@ The Colab export still has issues `run_models.py` doesn't: its data-loading cell
 
 ## Model Settings
 
-The Common Settings panel on [Run Models](models/) (`js/model-params.js`) edits `split` and `search`, and each model's `hyperparameters` are in its Details in the Models panel, shown by its "N Parameters" button (or "Parameters" beside Expand all for every model, `#expand=params`). Leaving a section out keeps the default behavior.
+The Common Parameters panel on [Run Models](models/) (`js/model-params.js`) edits `split` and `search`, and each model's `hyperparameters` are in its Details in the Models panel, shown by its "N Parameters" button (or "Parameters" beside Expand all for every model, `#expand=params`). Leaving a section out keeps the default behavior.
 
 ```yaml
 split: {test_size: 0.2, random_state: 42}

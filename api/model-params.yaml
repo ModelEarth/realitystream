@@ -1,6 +1,6 @@
 # Model settings that a parameters.yaml may set in its split, search and hyperparameters sections.
 # api/run_models.py validates against this file (validate_parameters), GET /model-params serves it,
-# and the fields on realitystream/models/ (the Common Settings panel and each model's details) are built from it.
+# and the fields on realitystream/models/ (the Common Parameters panel and each model's details) are built from it.
 #
 # Each field:
 #   type        int, float, choice, or layers (a list of 1 to 3 layer sizes)

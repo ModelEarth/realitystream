@@ -8,12 +8,13 @@
 <!--
   Home page of the RealityStream Cloud Run service, served at / by api/main.py.
   {{ASSET_BASE}} is the webroot that shared files load from: https://model.earth/ on Cloud Run,
-  or http://localhost:8887/ when testing locally (ASSET_BASE env var).
+  or http://localhost:8887/ when testing locally (ASSET_BASE env var), with a webroot server that sends
+  Access-Control-Allow-Origin, since this page fetches the parameter list and YAMLs from there.
   The same shared files make up realitystream/models/:
   realitystream/js/param-input.js (parameter base, features and targets, YAML),
   realitystream/js/model-select.js (models and their details, from realitystream/models/README.md) and
   realitystream/js/run-panel.js (Preview / Active modes, Team Passphrase, today's usage, SMOTE choice, Run button and results) and
-  realitystream/js/model-params.js (Common Settings: split and search, and each model's hyperparameters in its details).
+  realitystream/js/model-params.js (Common Parameters: split and search, and each model's hyperparameters in its details).
 -->
 <link rel="stylesheet" href="{{ASSET_BASE}}realitystream/css/param.css">
 <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
@@ -59,7 +60,7 @@ if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
   <div id="modelSelect"></div>
 </section>
 
-<!-- Common Settings, built by model-params.js from /model-params -->
+<!-- Common Parameters, built by model-params.js from /model-params -->
 <section class="panel" id="modelParams"></section>
 
 <section class="panel" data-rs-layout>

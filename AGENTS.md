@@ -61,11 +61,11 @@ cd realitystream
 pip install -r requirements.txt
 python api/run_models.py parameters/parameters-blinks.yaml   # pipeline only, writes report/
 python api/main.py                                    # API on port 8080, usage counted in memory
-ASSET_BASE=http://localhost:8887/ python api/main.py  # home page loads your local shared JS
+ASSET_BASE=http://localhost:8887/ python api/main.py  # home page loads your local shared JS (needs a webroot server sending CORS headers)
 python -m pytest tests                                # also runs in CI (.github/workflows/tests.yml)
 ```
 
-On localhost, http://localhost:8887/realitystream/models/ uses the local API when one answers on port 8080 (`apiBase()` in `js/run-panel.js`), so runs save their reports in your webroot's `reports/` folder. Add `?api=https://realitystream-kwr4qrkopq-uc.a.run.app/` to use Cloud Run instead (`?api=` works only on localhost). The Common Settings panel (`js/model-params.js`) appears only when that API serves `/model-params`.
+On localhost, http://localhost:8887/realitystream/models/ uses the local API when one answers on port 8080 (`apiBase()` in `js/run-panel.js`), so runs save their reports in your webroot's `reports/` folder. Add `?api=https://realitystream-kwr4qrkopq-uc.a.run.app/` to use Cloud Run instead (`?api=` works only on localhost). The Common Parameters panel (`js/model-params.js`) appears only when that API serves `/model-params`.
 
 ## Related repos
 

@@ -1,4 +1,4 @@
-// Common Settings panel for RealityStream pages: the YAML's split, search and hyperparameters sections.
+// Common Parameters panel for RealityStream pages: the YAML's split, search and hyperparameters sections.
 // Used by realitystream/models/ and the Cloud Run home page (realitystream/api/home.html).
 //
 // The fields come from the API's GET /model-params (api/model-params.yaml), the file the API validates
@@ -474,7 +474,7 @@
           style.textContent = STYLE;
           document.head.appendChild(style);
         }
-        host.innerHTML = '<h2>Common Settings</h2><div class="rs-mp-menu"></div><p class="rs-mp-note"></p>'
+        host.innerHTML = '<h2>Common Parameters</h2><div class="rs-mp-menu"></div><p class="rs-mp-note"></p>'
           + '<p class="rs-mp-intro">Train/test split and search, for all models. Each model\'s hyperparameters are under Parameters, in the Models panel.</p>'
           + '<div class="rs-mp-body"></div>';
         host.style.display = '';

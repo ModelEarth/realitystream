@@ -24,7 +24,8 @@
 // valid Team Passphrase) and rsParamError (detail.field and detail.message, when /run rejects a value in the YAML).
 //
 // Containers (each optional except #rsRunControls):
-//   #rsMode         Preview / Active switch and the Team Passphrase field (created above #rsRunControls when missing)
+//   #rsMode         Preview / Active switch and the Team Passphrase field (created above #rsRunControls when missing),
+//                   with a Live button at the right opening the Cloud Run form (RS_RUN_API) in the rsCloud tab
 //   #rsUsage        today's run time and cost
 //   #rsRunControls  SMOTE choice, Run button and status
 //
@@ -116,8 +117,11 @@ a.rs-btn-shape { display:inline-block; text-decoration:none; }
 .rs-run-button.rs-preview, .rs-run-button.rs-preview:disabled { background:#9aa1ab; opacity:1; }
 .rs-run-hint { margin-top:16px; }
 .rs-run-hint + .rs-run-actions { margin-top:8px; }
-/* Preview / Active switch at the top left, followed by the Team Passphrase */
+/* Preview / Active switch at the top left, followed by the Team Passphrase, and Live at the right */
 .rs-mode-bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; margin:0 0 12px; }
+a.rs-live-link { margin-left:auto; border:1px solid rgba(127,127,127,.35); border-radius:8px; padding:6px 16px; font-size:14px;
+  color:inherit; text-decoration:none; }
+a.rs-live-link:hover { background:rgba(127,127,127,.12); }
 .rs-mode-bar .rs-api-key { margin:0; flex-wrap:wrap; align-items:center; gap:6px 12px; }
 .rs-mode-switch { display:inline-flex; border:1px solid rgba(127,127,127,.35); border-radius:8px; overflow:hidden; font-size:14px; }
 .rs-mode-switch button { background:transparent; color:inherit; border:0; padding:6px 16px; cursor:pointer; font:inherit; }
@@ -607,6 +611,7 @@ a.rs-btn-shape { display:inline-block; text-decoration:none; }
     <span class="rs-key-state"></span>
     <button type="button" class="rs-forget-key" style="display:none">Clear</button>
   </div>
+  ${/\.run\.app$/.test(location.hostname) ? '' : `<a class="rs-live-link" href="${RS_RUN_API}" target="rsCloud" title="The form hosted on Google Cloud Run">Live</a>`}
 </div>`;
     modeHost.querySelector('.rs-mode-switch').addEventListener('click', e => {
       const b = e.target.closest('button');
