@@ -418,7 +418,7 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
     } else if (g && g.message) {
       github.innerHTML = escapeHtml(g.message.replace(/ Pushed to .*$/, ''))
         + (g.pushed_to ? ` Pushed to <a href="https://github.com/modelearth/reports/tree/main/${escapeHtml(g.pushed_to)}" target="_blank" rel="noopener">modelearth/reports/${escapeHtml(g.pushed_to)}</a>.` : '')
-        + (!g.pushed_to && g.token === 'missing' ? keysLink() : '');
+        + (!g.pushed_to && (g.token === 'missing' || g.token === 'invalid') ? keysLink() : '');
     } else {
       github.innerHTML = 'GitHub token: this Cloud Run revision doesn\'t report it, so the output wasn\'t pushed (a redeploy adds this).';
     }

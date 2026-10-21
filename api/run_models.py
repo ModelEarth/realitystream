@@ -986,6 +986,14 @@ def report_name(now=None):
     return now.strftime("%Y/run-%Y-%m-%dT%H-%M-%S")
 
 
+def write_file_list(report_dir):
+    """files.json: the report folder's files, which its index.html (localsite's displayCharts) shows."""
+    files = sorted(p.relative_to(report_dir).as_posix() for p in Path(report_dir).glob("**/*")
+                   if p.is_file() and p.name not in ("index.html", "files.json"))
+    with open(os.path.join(report_dir, "files.json"), "w", encoding="utf-8") as fh:
+        json.dump({"files": files}, fh, indent=2)
+
+
 def upload_reports(report_dir, repo=REPORTS_REPO, branch="main", year=None, subfolder=None, token=None):
     """Commit every file in report_dir to {year}/{subfolder}/ in the reports repo. Returns that path."""
     token = token or require_env("GITHUB_REPORTS_TOKEN")
@@ -1210,8 +1218,16 @@ def push_report(report_dir, upload, name=None):
         pushed = upload_reports(report_dir, year=year, subfolder=subfolder, token=token)
     except Exception as exc:
         print(f"  [WARN] GitHub push failed: {exc}")
-        return None, {"token": "available", "pushed_to": None,
-                      "message": f"GITHUB_REPORTS_TOKEN is set, but the push to GitHub failed: {exc}"}
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if status == 401:
+            message = ("GitHub rejected GITHUB_REPORTS_TOKEN (401), so it has expired or been revoked. "
+                       "Create a new one at https://github.com/settings/tokens and replace it.")
+        elif status in (403, 404):
+            message = (f"GITHUB_REPORTS_TOKEN can't write to {REPORTS_REPO} (HTTP {status}). "
+                       "It needs write access (Contents) to that repo.")
+        else:
+            message = f"GITHUB_REPORTS_TOKEN is set, but the push to GitHub failed: {exc}"
+        return None, {"token": "invalid" if status == 401 else "available", "pushed_to": None, "message": message}
     return pushed, {"token": "available", "pushed_to": pushed,
                     "message": f"GITHUB_REPORTS_TOKEN is set. Pushed to {REPORTS_REPO}/{pushed}."}
 
@@ -1286,6 +1302,7 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=None, smot
         cv_results_table(cv_results).to_csv(os.path.join(report_dir, "model_performance_cv.csv"), index=False)
         cv = {"mode": cv_used, "folds": folds, "results": cv_results}
 
+    write_file_list(report_dir)
     uploaded, github = push_report(report_dir, upload, name)
     print("\n[DONE]")
     summary = {

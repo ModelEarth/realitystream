@@ -463,6 +463,10 @@ def test_empty_models_still_write_the_report(tmp_path, monkeypatch):
     out = rm.run_pipeline(str(params), report_dir=str(tmp_path / "r"), smote=None)
     assert out["no_smote"] == [] and out["smote"] == [] and "baseline" in out
     assert (tmp_path / "r" / "parameters.yaml").exists()
+    # files.json lists the folder's files for its index.html
+    import json as _json
+    listed = _json.loads((tmp_path / "r" / "files.json").read_text(encoding="utf-8"))["files"]
+    assert "parameters.yaml" in listed and "files.json" not in listed and "index.html" not in listed
     # A YAML without a models line still runs rfc
     params.write_text("folder: t\nfeatures:\n  path: x\n", encoding="utf-8")
     assert rm.load_parameters(str(params))["models"] == ["rfc"]
