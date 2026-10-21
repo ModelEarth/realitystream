@@ -43,7 +43,14 @@ a { color:var(--accent); }
 <div id="rsMode"></div>
 <h1>RealityStream Run Models</h1>
 <p class="sub">Choose parameters, datasets and models, then run them on Google Cloud Run. Opening this page doesn't run a model; only the Run button does.
-Also at <a href="https://model.earth/realitystream/models/">model.earth/realitystream/models</a>.</p>
+Also at <a href="https://model.earth/realitystream/models/">model.earth/realitystream/models</a><span id="rsLocalPage"></span>.</p>
+<script>
+// Served by the local API: also link the page in the local webroot
+if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
+  document.getElementById('rsLocalPage').innerHTML =
+    ' and in your local webroot at <a href="http://localhost:8887/realitystream/models/">localhost:8887/realitystream/models</a>';
+}
+</script>
 
 <section class="panel" id="rsUsage"></section>
 

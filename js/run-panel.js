@@ -14,7 +14,7 @@
 // The YAML posted to /run is the text of #paramText pre, which param-input.js, model-select.js and
 // model-params.js keep up to date.
 //
-// Preview and Active modes (switch at the top right of the page, remembered per browser):
+// Preview and Active modes (switch at the top left of the page, remembered per browser):
 //   Preview (default)  anyone may check any models and edit every field; Run Models is gray.
 //   Active             shows the Team Passphrase field. Until a working passphrase is entered, every
 //                      other field except the Base parameters dropdown is greyed out. Runs are limited to MODEL_LIMIT models (1 without the
@@ -92,11 +92,12 @@
 .rs-run-label { font-weight:600; margin:16px 0 6px; }
 .rs-run-label-note { font-weight:400; }
 .rs-report-dest { margin-top:10px; opacity:.85; }
-/* The line after Run Models: a green View Output button and the report's path */
+/* A green View Output button right of Run Models, and the report's path on the line after */
 .rs-output-row { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; margin-bottom:10px; }
 a.rs-output-link { display:inline-block; border-radius:8px; padding:9px 22px; font-size:16px; line-height:1.25;
   background:#2e8b57; color:#fff; text-decoration:none; }
 a.rs-output-link:hover { background:#256f46; color:#fff; }
+a.rs-output-link[hidden] { display:none; }
 .rs-output-path { font-family:monospace; font-size:14px; word-break:break-all; opacity:.85; }
 .rs-output-none { opacity:.85; }
 .rs-token-warning { color:#c2410c; } .dark .rs-token-warning { color:#fb923c; }
@@ -115,10 +116,8 @@ a.rs-btn-shape { display:inline-block; text-decoration:none; }
 .rs-run-button.rs-preview, .rs-run-button.rs-preview:disabled { background:#9aa1ab; opacity:1; }
 .rs-run-hint { margin-top:16px; }
 .rs-run-hint + .rs-run-actions { margin-top:8px; }
-/* Preview / Active switch at the top right, aligned left when #rsMode is narrow */
-#rsMode { container-type:inline-size; }
-.rs-mode-bar { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px 14px; margin:0 0 12px; }
-@container (max-width:600px) { .rs-mode-bar { justify-content:flex-start; } }
+/* Preview / Active switch at the top left, followed by the Team Passphrase */
+.rs-mode-bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; margin:0 0 12px; }
 .rs-mode-bar .rs-api-key { margin:0; flex-wrap:wrap; align-items:center; gap:6px 12px; }
 .rs-mode-switch { display:inline-flex; border:1px solid rgba(127,127,127,.35); border-radius:8px; overflow:hidden; font-size:14px; }
 .rs-mode-switch button { background:transparent; color:inherit; border:0; padding:6px 16px; cursor:pointer; font:inherit; }
@@ -462,7 +461,7 @@ a.rs-btn-shape { display:inline-block; text-decoration:none; }
       + `so output isn't pushed to ${REPORTS_REPO_LINK}.` + keysLink();
   }
 
-  // View Output to the left of the Run button, the report's path (or why there's none) on the next line, then the GitHub token line.
+  // View Output to the right of the Run button, the report's path (or why there's none) on the next line, then the GitHub token line.
   // data is a run's reply, or null to show the state before a run.
   function showOutput(data) {
     const row = document.querySelector('#rsRunControls .rs-output-row');
@@ -595,6 +594,9 @@ a.rs-btn-shape { display:inline-block; text-decoration:none; }
     }
     modeHost.innerHTML = `
 <div class="rs-mode-bar">
+  <span class="rs-mode-switch" role="group" aria-label="Mode">
+    <button type="button" data-mode="preview">Preview</button><button type="button" data-mode="active">Active</button>
+  </span>
   <div class="rs-api-key" style="display:none">
     <!-- Its own form, so a browser offering to save the passphrase doesn't pick up another field on the page
          as the username. The hidden username field is blank (if a browser still fills one in, use a space). -->
@@ -605,9 +607,6 @@ a.rs-btn-shape { display:inline-block; text-decoration:none; }
     <span class="rs-key-state"></span>
     <button type="button" class="rs-forget-key" style="display:none">Clear</button>
   </div>
-  <span class="rs-mode-switch" role="group" aria-label="Mode">
-    <button type="button" data-mode="preview">Preview</button><button type="button" data-mode="active">Active</button>
-  </span>
 </div>`;
     modeHost.querySelector('.rs-mode-switch').addEventListener('click', e => {
       const b = e.target.closest('button');
@@ -623,8 +622,8 @@ a.rs-btn-shape { display:inline-block; text-decoration:none; }
 <div class="rs-free-note" style="display:none"></div>
 <div class="rs-run-hint" hidden>Change to <a href="#" class="rs-go-active">active mode</a> to generate output.</div>
 <div class="rs-run-actions">
-  <a class="rs-output-link" target="_blank" rel="noopener" hidden>View Output</a>
   <button type="button" class="rs-run-button rs-btn-shape">Run Models</button>
+  <a class="rs-output-link" target="_blank" rel="noopener" hidden>View Output</a>
   <span class="rs-run-status"></span>
 </div>
 <div class="rs-output-row" hidden>
