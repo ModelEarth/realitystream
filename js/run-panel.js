@@ -98,8 +98,10 @@
 a.rs-output-link { display:inline-block; border-radius:8px; padding:9px 22px; font-size:16px; line-height:1.25;
   background:#2e8b57; color:#fff; text-decoration:none; }
 a.rs-output-link:hover { background:#256f46; color:#fff; }
+#rsRunControls a.rs-output-link, #rsRunControls a.rs-output-link:visited, #rsRunControls a.rs-output-link:hover { color:#fff !important; }
 a.rs-output-link[hidden] { display:none; }
 .rs-output-path { font-family:monospace; font-size:14px; word-break:break-all; opacity:.85; }
+a.rs-output-path[hidden] { display:none; }
 .rs-output-none { opacity:.85; }
 .rs-token-warning { color:#c2410c; } .dark .rs-token-warning { color:#fb923c; }
 .rs-token-warning a { color:inherit; text-decoration:underline; }
@@ -465,20 +467,23 @@ a.rs-live-link:hover { background:rgba(127,127,127,.12); }
       + `so output isn't pushed to ${REPORTS_REPO_LINK}.` + keysLink();
   }
 
-  // View Output to the right of the Run button, the report's path (or why there's none) on the next line, then the GitHub token line.
+  // View Output to the right of the Run button, the run time and the report's linked path (or why there's none) on the next line, then the GitHub token line.
   // data is a run's reply, or null to show the state before a run.
   function showOutput(data) {
     const row = document.querySelector('#rsRunControls .rs-output-row');
     const link = document.querySelector('#rsRunControls .rs-output-link');
     const path = document.querySelector('#rsRunControls .rs-output-path');
     const none = document.querySelector('#rsRunControls .rs-output-none');
+    const time = document.querySelector('#rsRunControls .rs-run-time');
     const github = document.querySelector('#rsRunControls .rs-github-status');
     if (!link) return;
     const url = data ? outputUrl(data) : '';
     row.hidden = !data;
     link.hidden = path.hidden = !url;
+    time.hidden = !data || data.run_secs == null;
+    if (!time.hidden) time.textContent = `Run time: ${data.run_secs} second${data.run_secs === 1 ? '' : 's'}${url ? ':' : '.'}`;
     if (url) {
-      link.href = url;
+      link.href = path.href = url;
       path.textContent = data.output_path || 'reports/' + data.uploaded_to + '/';
     }
     none.hidden = !data || !!url;
@@ -549,9 +554,10 @@ a.rs-live-link:hover { background:rgba(127,127,127,.12); }
       const secs = Math.round((Date.now() - started) / 1000);
       if (resp.ok && data.status === 'success') {
         showResults(data);
+        data.run_secs = secs;
         lastRun = data;
         showOutput(data);
-        setStatus(`Finished in ${secs} s.`, 'ok');
+        setStatus('');
       } else if (data.status === 'missing_key') {
         setStatus(`${data.key} is needed. ${data.how_to_get_it || ''}`, 'error');
       } else if (data.more_runs_url) {
@@ -632,7 +638,8 @@ a.rs-live-link:hover { background:rgba(127,127,127,.12); }
   <span class="rs-run-status"></span>
 </div>
 <div class="rs-output-row" hidden>
-  <span class="rs-output-path" hidden></span>
+  <span class="rs-run-time" hidden></span>
+  <a class="rs-output-path" target="_blank" rel="noopener" hidden></a>
   <span class="rs-output-none" hidden></span>
 </div>
 <div class="rs-github-status" hidden></div>

@@ -488,8 +488,10 @@ def test_check_reports_token(monkeypatch):
         def json(self):
             return self.body
     assert rm.check_reports_token("")["token"] == "missing"
-    for code, body, want in [(401, None, "invalid"), (200, {"permissions": {"push": True}}, "valid"),
-                             (200, {"permissions": {"push": False}}, "no_access"), (404, None, "no_access")]:
-        monkeypatch.setattr(rm.requests, "get", lambda *a, _r=Resp(code, body), **k: _r)
+    for code, want in [(401, "invalid"), (422, "valid"), (403, "no_access"), (404, "no_access"), (500, "unknown")]:
+        monkeypatch.setattr(rm.requests, "post", lambda *a, _r=Resp(code), **k: _r)
         assert rm.check_reports_token("t")["token"] == want
+    monkeypatch.setattr(rm.requests, "post", lambda *a, **k: Resp(403))
+    assert "Read and write" in rm.check_reports_token("t")["message"]
+    monkeypatch.setattr(rm.requests, "post", lambda *a, **k: Resp(422))
     assert "(from this browser)" in rm.check_reports_token("t", "GITHUB_REPORTS_TOKEN (from this browser)")["message"]

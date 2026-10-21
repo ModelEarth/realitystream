@@ -1201,6 +1201,11 @@ def _warn_timeseries(param):
     print(f"  [WARN] timeseries.path is {state} and not used yet: {ts_path}")
 
 
+# How to give a token write access, for the no-access messages
+NO_WRITE_FIX = ('In the token\'s settings on GitHub, set Repository permissions, "Contents" to Read and write. '
+                "A token for an organization's repo may also need an organization owner's approval.")
+
+
 def check_reports_token(token=None, label="GITHUB_REPORTS_TOKEN"):
     """Whether GITHUB_REPORTS_TOKEN can push to the reports repo, asked of GitHub. Returns
     {"token": "valid" | "missing" | "invalid" | "no_access" | "unknown", "message": text for the page}. Never the value.
@@ -1208,19 +1213,22 @@ def check_reports_token(token=None, label="GITHUB_REPORTS_TOKEN"):
     token = token if token is not None else get_env("GITHUB_REPORTS_TOKEN")
     if not token:
         return {"token": "missing", "message": f"{label} is not set, so output isn't pushed to GitHub."}
+    # The repo's permissions.push is the account's role, not a fine-grained token's own access, so ask for
+    # a branch at a commit that can't exist: GitHub checks write access first (403), then the commit (422)
     try:
-        resp = requests.get(f"https://api.github.com/repos/{REPORTS_REPO}", timeout=15,
-                            headers={"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"})
+        resp = requests.post(f"https://api.github.com/repos/{REPORTS_REPO}/git/refs", timeout=15,
+                             headers={"Authorization": f"token {token}", "Accept": "application/vnd.github+json"},
+                             json={"ref": "refs/heads/rs-token-check", "sha": "0" * 40})
     except Exception:
         return {"token": "unknown", "message": f"GitHub could not be reached to check {label}."}
     if resp.status_code == 401:
         return {"token": "invalid", "message": f"GitHub rejects {label}: it has expired or been revoked (401), "
                                                 "so output won't be pushed to GitHub."}
-    if resp.status_code == 200 and (resp.json().get("permissions") or {}).get("push"):
-        return {"token": "valid", "message": f"{label} works: output is pushed to {REPORTS_REPO}."}
-    if resp.status_code in (200, 403, 404):
+    if resp.status_code == 422:
+        return {"token": "valid", "message": f"{label} works: output will be pushed to {REPORTS_REPO}."}
+    if resp.status_code in (403, 404):
         return {"token": "no_access", "message": f"{label} can't write to {REPORTS_REPO}, so output won't be "
-                                                  "pushed to GitHub. It needs write access (Contents) to that repo."}
+                                                  "pushed to GitHub. " + NO_WRITE_FIX}
     return {"token": "unknown", "message": f"GitHub answered HTTP {resp.status_code} when checking {label}."}
 
 
@@ -1247,8 +1255,7 @@ def push_report(report_dir, upload, name=None, token=None, label="GITHUB_REPORTS
             message = (f"GitHub rejected {label}: it has expired or been revoked (401). "
                        "Create a new one at https://github.com/settings/tokens and replace it.")
         elif status in (403, 404):
-            message = (f"{label} can't write to {REPORTS_REPO} (HTTP {status}). "
-                       "It needs write access (Contents) to that repo.")
+            message = f"{label} can't write to {REPORTS_REPO} (HTTP {status}). " + NO_WRITE_FIX
         else:
             message = f"{label} is set, but the push to GitHub failed: {exc}"
         return None, {"token": "invalid" if status == 401 else "available", "pushed_to": None, "message": message}
