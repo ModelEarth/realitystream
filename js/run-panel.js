@@ -2,8 +2,13 @@
 // Used by realitystream/models/ and the Cloud Run home page (realitystream/api/home.html).
 //
 // Runs go to the RealityStream Cloud Run API (api/main.py): this site when the page is served by
-// Cloud Run, otherwise RS_RUN_API below (or data-api on #rsRunControls). On localhost, ?api= in the page URL
-// points it at a local API instead, for example ?api=http://localhost:8080/ while `python api/main.py` runs.
+// Cloud Run, otherwise RS_RUN_API below (or data-api on #rsRunControls). On localhost, the page uses the
+// local API at port 8080 when `python api/main.py` is running there, and ?api= in the page URL picks
+// another, for example ?api=https://realitystream-kwr4qrkopq-uc.a.run.app/ to run on Cloud Run.
+//
+// Each run writes a report folder ({year}/run-{date}T{time}, with an index.html). The local API saves it
+// in the webroot's reports folder, and the link after the Run button opens it. With GITHUB_REPORTS_TOKEN
+// set, the same folder is pushed to GitHub modelearth/reports, and a line below the button says whether it was.
 // The YAML posted to /run is the text of #paramText pre, which param-input.js, model-select.js and
 // model-params.js keep up to date.
 //
@@ -37,17 +42,37 @@
   // Models per run in Active mode with the Team Passphrase (a deploy on your own Google Cloud account may raise it)
   const MODEL_LIMIT = 2;
 
+  const LOCAL_API_PORT = 8080;
+
   const $ = id => document.getElementById(id);
+  const onLocalhost = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+
+  let localApi = ''; // The local API's address, when one answers on localhost (see ready)
 
   function apiBase() {
     const el = $('rsRunControls');
     if (el && el.dataset.api) return new URL(el.dataset.api, location.href).href.replace(/\/?$/, '/');
-    if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
+    if (onLocalhost) {
       const local = new URLSearchParams(location.search).get('api');
       if (local) return new URL(local, location.href).href.replace(/\/?$/, '/');
+      if (localApi) return localApi;
     }
     return /\.run\.app$/.test(location.hostname) ? location.origin + '/' : RS_RUN_API;
   }
+
+  // On localhost without ?api=, use the local API when its /health answers. Pages wait for this
+  // (RSRunPanel.ready) before their first call to apiBase().
+  const ready = (function detectLocalApi() {
+    if (!onLocalhost || new URLSearchParams(location.search).get('api')) return Promise.resolve();
+    const base = `${location.protocol}//${location.hostname}:${LOCAL_API_PORT}/`;
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 1500);
+    return fetch(base + 'health', { cache: 'no-store', signal: abort.signal })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d && d.service === 'realitystream') localApi = base; })
+      .catch(() => {})
+      .finally(() => clearTimeout(timer));
+  })();
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -62,6 +87,8 @@
 .rs-run-label { font-weight:600; margin:16px 0 6px; }
 .rs-run-label-note { font-weight:400; }
 .rs-report-dest { margin-top:10px; opacity:.85; }
+.rs-output-link { font-weight:600; }
+.rs-github-status { margin-top:8px; }
 .rs-smote { display:flex; flex-wrap:wrap; gap:6px 20px; }
 .rs-smote label { display:inline-flex; gap:6px; align-items:center; cursor:pointer; }
 .rs-run-actions { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-top:18px; }
@@ -263,6 +290,7 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
       fill.style.width = pct + '%';
       fill.classList.toggle('full', pct >= 100);
     }
+    updateReportDest();
     applyKeyMode();
     if ($('rsEndpoints')) {
       $('rsEndpoints').innerHTML = '<div class="rs-table-wrap"><table class="rs-table">'
@@ -329,11 +357,50 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
         + `${escapeHtml(s.n_iter)} search tries for XGBoost and MLP</p>` : '')
       + '<div class="rs-table-wrap"><table class="rs-table">'
       + '<tr><th>Model</th><th>Training</th><th>Accuracy</th><th>ROC-AUC</th><th>F1</th><th>Precision</th><th>Recall</th><th>Time</th><th>Settings</th></tr>'
-      + (rows.join('') || '<tr><td colspan="9">No models were trained.</td></tr>') + '</table></div>'
-      + (data.uploaded_to
-        ? `<p>Report uploaded to <a href="https://github.com/modelearth/reports/tree/main/${escapeHtml(data.uploaded_to)}" target="_blank" rel="noopener">modelearth/reports/${escapeHtml(data.uploaded_to)}</a></p>`
-        : '');
+      + (rows.join('') || '<tr><td colspan="9">No models were trained.</td></tr>') + '</table></div>';
     host.style.display = 'block';
+  }
+
+  // The report folder: the local copy when this page shares a webroot with the local API, else the
+  // copy pushed to GitHub (model.earth/reports shows it once GitHub Pages rebuilds)
+  const apiIsLocal = () => /^https?:\/\/(localhost|127\.0\.0\.1)[:/]/.test(apiBase());
+
+  function outputUrl(data) {
+    if (data.output_path && onLocalhost && apiIsLocal()) return location.origin + '/' + data.output_path;
+    if (data.uploaded_to) return `https://model.earth/reports/${data.uploaded_to}/`;
+    return '';
+  }
+
+  function showOutput(data) {
+    const link = document.querySelector('#rsRunControls .rs-output-link');
+    const url = data ? outputUrl(data) : '';
+    link.hidden = !url;
+    if (url) {
+      link.href = url;
+      link.textContent = 'Output: ' + (data.output_path || 'reports/' + data.uploaded_to + '/');
+    }
+    const github = document.querySelector('#rsRunControls .rs-github-status');
+    const g = data && data.github;
+    github.hidden = !(g && g.message);
+    if (github.hidden) return;
+    github.innerHTML = escapeHtml(g.message.replace(/ Pushed to .*$/, ''))
+      + (g.pushed_to ? ` Pushed to <a href="https://github.com/modelearth/reports/tree/main/${escapeHtml(g.pushed_to)}" target="_blank" rel="noopener">modelearth/reports/${escapeHtml(g.pushed_to)}</a>.` : '')
+      + (!g.pushed_to && g.token === 'missing' && apiIsLocal() ? ' Add it on the <a href="' + escapeHtml(apiBase()) + 'keys" target="_blank" rel="noopener">local keys page</a>.' : '');
+  }
+
+  // Where runs go and whether they reach GitHub, before a run (from the API's home JSON)
+  function updateReportDest() {
+    const el = document.querySelector('#rsRunControls .rs-report-dest');
+    if (!el || !info) return;
+    const repo = '<a href="https://github.com/modelearth/reports" target="_blank" rel="noopener">modelearth/reports</a>';
+    const where = info.saves_locally
+      ? `Runs use your local API (${escapeHtml(apiBase())}), which saves each report in your webroot's <code>reports/{year}/run-{date-time}</code> folder.`
+      : 'Runs use the RealityStream Cloud Run service.'
+        + (onLocalhost ? ' To save reports in your webroot, start the local API: <code>python api/main.py</code>' : '');
+    const token = info.github_token === undefined ? ''
+      : info.github_token ? ` GITHUB_REPORTS_TOKEN is set, so runs with the Team Passphrase are also pushed to GitHub ${repo}.`
+        : ` GITHUB_REPORTS_TOKEN is not set${info.saves_locally ? '' : ' on this service'}, so reports aren't pushed to GitHub ${repo}.`;
+    el.innerHTML = where + token;
   }
 
   async function runModels() {
@@ -344,11 +411,8 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
       setStatus('Add parameters first.', 'error');
       return;
     }
+    // With no models checked, the run still writes its report folder (data and baseline, no models)
     const count = window.RSModelSelect ? RSModelSelect.selected().length : 1;
-    if (!count) {
-      setStatus('Select at least one model.', 'error');
-      return;
-    }
     if (count > modelLimit()) {
       setStatus('', 'error', limitText());
       return;
@@ -365,12 +429,14 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
     const started = Date.now();
     const timer = setInterval(() => setStatus(`Running… ${Math.round((Date.now() - started) / 1000)} s`), 1000);
     setStatus('Running…');
+    showOutput(null);
     try {
       const resp = await fetch(url, { method: 'POST', headers, body: yaml });
       const data = await resp.json().catch(() => ({}));
       const secs = Math.round((Date.now() - started) / 1000);
       if (resp.ok && data.status === 'success') {
         showResults(data);
+        showOutput(data);
         setStatus(`Finished in ${secs} s.`, 'ok');
       } else if (data.status === 'missing_key') {
         setStatus(`${data.key} is needed. ${data.how_to_get_it || ''}`, 'error');
@@ -447,10 +513,11 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
 <div class="rs-run-hint" hidden>Change to <a href="#" class="rs-go-active">active mode</a> to generate output.</div>
 <div class="rs-run-actions">
   <button type="button" class="rs-run-button rs-btn-shape">Run Models</button>
+  <a class="rs-output-link" target="_blank" rel="noopener" hidden></a>
   <span class="rs-run-status"></span>
 </div>
-<div class="rs-report-dest">Report uploads (<code>/run?upload=1</code> with the Team Passphrase) go to GitHub
-  <a href="https://github.com/modelearth/reports" target="_blank" rel="noopener">modelearth/reports</a>, in a <code>{year}/run-{date-time}</code> folder.</div>`;
+<div class="rs-github-status" hidden></div>
+<div class="rs-report-dest"></div>`;
     controls.querySelector('.rs-run-button').addEventListener('click', runModels);
     controls.querySelector('.rs-go-active').addEventListener('click', e => {
       e.preventDefault();
@@ -494,7 +561,7 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
     }
     initLayoutSwitch();
     applyKeyMode();
-    refreshUsage().then(() => checkKey(false));
+    ready.then(refreshUsage).then(() => checkKey(false));
   }
 
   // In-page confirmation with Yes / No buttons (instead of the browser's confirm dialog)
@@ -545,7 +612,7 @@ button.rs-btn-shape { border-width:1px; border-style:solid; border-radius:8px; p
     apply(layout);
   }
 
-  window.RSRunPanel = { refreshUsage, apiBase, setMode, mode: () => mode, isLocked: () => lockedNow };
+  window.RSRunPanel = { refreshUsage, apiBase, ready, setMode, mode: () => mode, isLocked: () => lockedNow };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);

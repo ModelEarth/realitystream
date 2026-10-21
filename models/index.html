@@ -30,16 +30,14 @@
 #paramText { font-size:0.9em; overflow:scroll !important; padding-top:0px; padding-bottom:0px; outline:none; }
 </style>
 <script>
-// Intro (beside Run Models) returns to the RealityStream intro page with the selected models in the hash
+// Intro (beside Run Models) returns to the RealityStream intro page with the selected models, if any, in the hash
 function redirectToMainPage() {
   const selected = RSModelSelect.selected();
-  if (!selected.length) {
-    alert("Please select a model first.");
-    return;
+  if (selected.length) {
+    const currentHash = getHash();
+    currentHash.models = selected.join(',');
+    updateHash(currentHash);
   }
-  const currentHash = getHash();
-  currentHash.models = selected.join(',');
-  updateHash(currentHash);
   window.location.href = '../' + window.location.hash;
 }
 </script>

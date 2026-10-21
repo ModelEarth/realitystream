@@ -12,7 +12,7 @@
 //
 // Settings shared by more than one model (split, and search for xgboost and mlp) stay in the panel. Each
 // model's hyperparameters go in that model's details in the Models panel (model-select.js's
-// .rs-model-params slot), after its description.
+// .rs-model-params slot, shown by the "N Parameters" button after its description).
 //
 // In Active mode without the Team Passphrase every field is greyed out. run-panel.js sends rsModeChange
 // when that changes, and rsParamError when /run rejects a value, which this panel marks on that field.
@@ -257,6 +257,8 @@
       slot.querySelectorAll('.rs-mp-field').forEach(bindField);
     });
     fill();
+    // model-select.js counts each model's fields for its "N Parameters" button
+    document.dispatchEvent(new Event('rsModelParamsBuilt'));
   }
 
   function fieldPath(field) {
@@ -459,7 +461,8 @@
     const host = $('modelParams');
     if (!host || !window.RSRunPanel) return;
     host.style.display = 'none';
-    fetch(RSRunPanel.apiBase() + 'model-params', { cache: 'no-store' })
+    // After run-panel.js has checked for a local API
+    Promise.resolve(RSRunPanel.ready).then(() => fetch(RSRunPanel.apiBase() + 'model-params', { cache: 'no-store' }))
       .then(r => (r.ok ? r.json() : null))
       .catch(() => null)
       .then(data => {
@@ -472,7 +475,7 @@
           document.head.appendChild(style);
         }
         host.innerHTML = '<h2>Common Settings</h2><div class="rs-mp-menu"></div><p class="rs-mp-note"></p>'
-          + '<p class="rs-mp-intro">Train/test split and search, for all models. Each model\'s hyperparameters are in its Details, in the Models panel.</p>'
+          + '<p class="rs-mp-intro">Train/test split and search, for all models. Each model\'s hyperparameters are under Parameters, in the Models panel.</p>'
           + '<div class="rs-mp-body"></div>';
         host.style.display = '';
         addMenu();

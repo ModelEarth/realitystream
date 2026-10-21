@@ -11,8 +11,14 @@ RealityStream serverless API for Google Cloud Run: Flask wrapper around run_mode
     GET  /keys                 local only (not on Cloud Run): paste NAME=value lines into the OS credential store
     POST /run[?upload=1][&smote=0|1]
                                body = parameters.yaml text, or JSON {"parameters": "parameters-blinks.yaml"}
-                               returns the run summary as JSON; upload=1 pushes the report folder;
-                               smote=0 trains only without SMOTE, smote=1 only with SMOTE, omitted trains both
+                               returns the run summary as JSON; smote=0 trains only without SMOTE,
+                               smote=1 only with SMOTE, omitted trains both
+
+Each run's report folder is named {year}/run-{date}T{time}. Run locally (not on Cloud Run), it's saved in
+the webroot's reports folder (REPORTS_DIR overrides), and `output_path` (for example
+reports/2026/run-2026-10-21T14-05-00/) is its path from the webroot. With the Team Passphrase, the folder is
+also pushed to GitHub modelearth/reports when GITHUB_REPORTS_TOKEN is set; `github.message` says whether it
+was. upload=1 requires the push (HTTP 400 without the token).
 
 A YAML value that model-params.yaml doesn't allow returns HTTP 400 with `field` naming it, before the
 run is counted. A missing key (for example GITHUB_REPORTS_TOKEN when upload=1) returns HTTP 400 with
@@ -49,6 +55,10 @@ from flask import Flask, jsonify, request
 
 REALITYSTREAM_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PARAMETERS_DIR = os.path.join(REALITYSTREAM_DIR, "parameters")
+WEBROOT_DIR = os.path.dirname(REALITYSTREAM_DIR)
+# Local runs save their report folders here (the webroot's reports repo), so the page can link to them
+ON_CLOUD_RUN = bool(os.environ.get("K_SERVICE"))  # Cloud Run sets K_SERVICE
+REPORTS_DIR = os.environ.get("REPORTS_DIR") or os.path.join(WEBROOT_DIR, "reports")
 
 # run_models.py and keystore.py reside beside this file, in realitystream/api/
 API_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -180,6 +190,18 @@ def key_status():
     return "valid" if hmac.compare_digest(sent, expected) else "invalid"
 
 
+def github_token_set():
+    """Whether GITHUB_REPORTS_TOKEN is set (never its value), for the page's message about pushing reports."""
+    from run_models import get_env
+
+    return bool(get_env("GITHUB_REPORTS_TOKEN", ""))
+
+
+def saves_locally():
+    """Local runs keep their report folders in REPORTS_DIR; Cloud Run's are temporary."""
+    return not ON_CLOUD_RUN and os.path.isdir(REPORTS_DIR)
+
+
 def caller_id():
     """Who is calling: the client IP address. Google's front end appends it as the last X-Forwarded-For
     entry; earlier entries can be set by the client, so they aren't trusted."""
@@ -198,7 +220,8 @@ ENDPOINTS = {
     "GET /model-params": "Settings the YAML's split, search and hyperparameters sections may set",
     "POST /run": 'Body = parameters.yaml text, or JSON {"parameters": "parameters-blinks.yaml"}. '
                  'Add ?smote=0 to train only without SMOTE, ?smote=1 only with SMOTE (omit to train both), '
-                 '?upload=1 to push the report (needs the key). Without header X-API-Key: 1 model, once per day.',
+                 'Reports are pushed to GitHub when GITHUB_REPORTS_TOKEN is set (needs the key); ?upload=1 requires it. '
+                 'Without header X-API-Key: 1 model, once per day.',
 }
 SOURCE_URL = "https://github.com/ModelEarth/realitystream/blob/main/api/main.py"
 
@@ -225,6 +248,7 @@ def index():
                     "minutes_left_today": round(remaining, 1) if totals else None,
                     "daily_cost_limit_usd": DAILY_COST_LIMIT_USD, "daily_limit_minutes": round(DAILY_LIMIT_MINUTES, 1),
                     "api_key_enabled": api_key_enabled(), "free_runs_per_day": FREE_RUNS_PER_DAY,
+                    "github_token": github_token_set(), "saves_locally": saves_locally(),
                     "more_runs": MORE_RUNS, "more_runs_url": MORE_RUNS_URL,
                     "endpoints": ENDPOINTS, "source": SOURCE_URL}), 200
 
@@ -342,13 +366,26 @@ def run():
                 fh.write(yaml_body)
         started = time.monotonic()
         try:
-            from run_models import MissingKey, run_pipeline
+            from run_models import MissingKey, report_name, run_pipeline
 
+            name = report_name()
+            local = saves_locally()
+            report_dir = os.path.join(REPORTS_DIR, *name.split("/")) if local else os.path.join(work, "report")
+            # Pushed to GitHub when the token is set (upload=1 requires it); keyless runs aren't pushed
+            push = True if upload else ("auto" if keyed else False)
             try:
-                summary = run_pipeline(yaml_path, report_dir=os.path.join(work, "report"), upload=upload, smote=smote)
+                summary = run_pipeline(yaml_path, report_dir=report_dir, upload=push, smote=smote, name=name)
             except MissingKey as exc:
                 return jsonify({"status": "missing_key", "key": exc.name, "how_to_get_it": exc.how_to_get_it}), 400
-            summary.pop("report_dir", None)  # Temporary folder, removed after this request
+            summary.pop("report_dir", None)  # Not shown: on Cloud Run, a temporary folder removed after this request
+            summary["report_name"] = name
+            summary["output_path"] = None
+            if local:
+                rel = os.path.relpath(report_dir, WEBROOT_DIR)
+                summary["output_path"] = None if rel.startswith("..") else rel.replace(os.sep, "/") + "/"
+            if not push:
+                summary["github"] = {"token": None, "pushed_to": None,
+                                     "message": "Reports are pushed to GitHub only with the Team Passphrase."}
             return jsonify({"status": "success", "keyed": keyed, **summary}), 200
         except Exception as exc:
             return jsonify({"status": "error", "message": str(exc)}), 500

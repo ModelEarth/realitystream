@@ -9,11 +9,13 @@
 //
 // render() shows the model titles with checkboxes. Each title expands to its details, and
 // "Expand all" opens every one and adds #expand=all to the page URL (so a link loads expanded), and
-// "Collapse all" removes it. The checkboxes stay in sync with the URL hash (#models=lr,rfc),
+// "Collapse all" removes it. "Parameters" beside it opens every model with its parameter fields showing
+// (#expand=params), and "Hide parameters" hides the fields again. The checkboxes stay in sync with the URL hash (#models=lr,rfc),
 // which param-input.js copies into the YAML's models: line. Without models in the hash,
 // the checkboxes show the models already in the YAML (#paramText pre). All of them may be unchecked.
 // Each model's details end with an empty .rs-model-params[data-model] slot, where model-params.js puts
-// that model's hyperparameter fields.
+// that model's hyperparameter fields. The slot is hidden until its "N Parameters" button, after the
+// bullets, is clicked; model-params.js sends rsModelParamsBuilt once the fields are in, for the counts.
 //
 // run-panel.js calls setLocked() (in Active mode until the Team Passphrase is entered) and setNote()
 // (the selection limit, shown above the checkboxes).
@@ -256,6 +258,10 @@
 .rs-model-details ul { margin:4px 0; padding-left:18px; }
 .rs-model-details p { margin:4px 0; }
 .rs-model-params:empty { display:none; }
+.rs-params-toggle { display:inline-flex; align-items:center; gap:4px; margin:8px 0 0; padding:3px 10px; border:1px solid rgba(127,127,127,.4); border-radius:6px; background:transparent; color:inherit; font:inherit; font-size:13px; cursor:pointer; }
+.rs-params-toggle:hover { background:rgba(127,127,127,.12); }
+.rs-params-toggle .rs-chevron { display:inline-block; transition:transform .15s; }
+.rs-params-toggle[aria-expanded="true"] .rs-chevron { transform:rotate(90deg); }
 .rs-nowrap { white-space:nowrap; }
 `;
 
@@ -265,6 +271,26 @@
     const details = row.querySelector('.rs-model-details');
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
     details.hidden = !open;
+  }
+
+  // Show or hide a model's parameter fields (in its details, after the bullets)
+  function setParamsShown(row, show) {
+    if (!row) return;
+    row.querySelector('.rs-params-toggle').setAttribute('aria-expanded', show ? 'true' : 'false');
+    row.querySelector('.rs-model-params').hidden = !show;
+  }
+
+  // "N Parameter(s)" on each model's button, from the fields model-params.js put in its slot
+  function updateParamCounts() {
+    document.querySelectorAll('.rs-model-row').forEach(row => {
+      const n = row.querySelectorAll('.rs-model-params .rs-mp-field').length;
+      const btn = row.querySelector('.rs-params-toggle');
+      btn.hidden = !n;
+      btn.querySelector('.rs-params-count').textContent = n + (n === 1 ? ' Parameter' : ' Parameters');
+    });
+    document.querySelectorAll('.rs-show-params').forEach(b => {
+      b.hidden = !document.querySelector('.rs-model-params .rs-mp-field');
+    });
   }
 
   // Render model titles with checkboxes and expandable details into the container (default #modelSelect)
@@ -279,7 +305,8 @@
         document.head.appendChild(style);
       }
       host.classList.add('rs-model-select');
-      host.innerHTML = '<div class="rs-models-toolbar"><button type="button" class="rs-expand-all">Expand all</button></div>'
+      host.innerHTML = '<div class="rs-models-toolbar"><button type="button" class="rs-expand-all">Expand all</button>'
+        + '<button type="button" class="rs-show-params" hidden>Parameters</button></div>'
         + '<div class="rs-models-note" hidden></div>'
         + models.map(m => `
 <div class="rs-model-row" data-model="${escapeHtml(m.value)}">
@@ -287,35 +314,64 @@
     <label class="rs-model-option"><input type="checkbox" name="model" value="${escapeHtml(m.value)}"> ${m.label}</label>
     <button type="button" class="rs-model-toggle" aria-expanded="false" title="Details"><span class="rs-chevron">&#9656;</span> Details</button>
   </div>
-  <div class="rs-model-details" hidden><div class="rs-model-text">${mdToHtml(m.details)}</div><div class="rs-model-params" data-model="${escapeHtml(m.value)}"></div></div>
+  <div class="rs-model-details" hidden><div class="rs-model-text">${mdToHtml(m.details)}</div>
+    <button type="button" class="rs-params-toggle" aria-expanded="false" hidden><span class="rs-chevron">&#9656;</span> <span class="rs-params-count"></span></button>
+    <div class="rs-model-params" data-model="${escapeHtml(m.value)}" hidden></div></div>
 </div>`).join('');
       resolveLinks(host);
       host.querySelectorAll('.rs-model-option, .rs-model-text').forEach(nowrapParens);
 
       const rows = Array.from(host.querySelectorAll('.rs-model-row'));
       const allBtn = host.querySelector('.rs-expand-all');
+      const paramsBtn = host.querySelector('.rs-show-params');
+      const allParamsShown = () => rows.every(r =>
+        !r.querySelector('.rs-model-details').hidden && !r.querySelector('.rs-model-params').hidden);
       const updateAllBtn = () => {
         const allOpen = rows.every(r => !r.querySelector('.rs-model-details').hidden);
         allBtn.textContent = allOpen ? 'Collapse all' : 'Expand all';
+        paramsBtn.textContent = allParamsShown() ? 'Hide parameters' : 'Parameters';
       };
-      rows.forEach(row => row.querySelector('.rs-model-toggle').addEventListener('click', () => {
-        setExpanded(row, row.querySelector('.rs-model-details').hidden);
-        updateAllBtn();
-      }));
+      // Without a history entry or a hash change event: only the details open or close
+      const quietHash = value => {
+        if (typeof goHashQuiet !== 'function') return;
+        if (value) goHashQuiet({ expand: value }); else goHashQuiet({}, ['expand']);
+      };
+      rows.forEach(row => {
+        row.querySelector('.rs-model-toggle').addEventListener('click', () => {
+          setExpanded(row, row.querySelector('.rs-model-details').hidden);
+          updateAllBtn();
+        });
+        row.querySelector('.rs-params-toggle').addEventListener('click', () => {
+          setParamsShown(row, row.querySelector('.rs-model-params').hidden);
+          updateAllBtn();
+        });
+      });
       allBtn.addEventListener('click', () => {
         const open = allBtn.textContent === 'Expand all';
         rows.forEach(row => setExpanded(row, open));
         updateAllBtn();
-        // Without a history entry or a hash change event: only the details open or close
-        if (typeof goHashQuiet === 'function') {
-          if (open) goHashQuiet({ expand: 'all' }); else goHashQuiet({}, ['expand']);
-        }
+        quietHash(open ? 'all' : '');
       });
-      // #expand=all opens every model's details when the page loads
-      if (typeof getHash === 'function' && getHash().expand === 'all') {
-        rows.forEach(row => setExpanded(row, true));
+      // Every model open with its parameters showing, or the parameters hidden again (details stay open)
+      paramsBtn.addEventListener('click', () => {
+        const show = !allParamsShown();
+        rows.forEach(row => {
+          if (show) setExpanded(row, true);
+          setParamsShown(row, show);
+        });
+        updateAllBtn();
+        quietHash(show ? 'params' : 'all');
+      });
+      // #expand=all opens every model's details when the page loads, and #expand=params their parameters too
+      const expandHash = typeof getHash === 'function' ? getHash().expand : '';
+      if (expandHash === 'all' || expandHash === 'params') {
+        rows.forEach(row => {
+          setExpanded(row, true);
+          setParamsShown(row, expandHash === 'params');
+        });
         updateAllBtn();
       }
+      updateParamCounts();
       bind();
       // model-params.js fills each model's .rs-model-params, and run-panel.js applies the mode
       document.dispatchEvent(new Event('rsModelSelectRendered'));
@@ -323,11 +379,14 @@
     });
   }
 
-  // Open a model's details (model-params.js, to show a field the API rejected)
+  // Open a model's details and its parameters (model-params.js, to show a field the API rejected)
   function expand(value) {
     const row = Array.from(document.querySelectorAll('.rs-model-row')).find(r => r.dataset.model === value);
     setExpanded(row, true);
+    setParamsShown(row, true);
   }
+
+  document.addEventListener('rsModelParamsBuilt', updateParamCounts);
 
   window.RSModelSelect = {
     loadReadme, loadModels, render, renderMarkdown, bind, setLocked, setNote, expand,

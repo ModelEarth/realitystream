@@ -18,6 +18,7 @@ def _client(monkeypatch):
     calls = []
     monkeypatch.setattr(rm, "run_pipeline", lambda path, **kw: calls.append(kw) or {"folder": "t"})
     monkeypatch.setattr(main, "usage", main.UsageStore())  # fresh in-memory daily totals
+    monkeypatch.setattr(main, "ON_CLOUD_RUN", True)  # temporary report folders, as on Cloud Run
     return main.app.test_client(), calls
 
 
@@ -52,8 +53,24 @@ def test_settings_with_passphrase_run(monkeypatch):
     resp = client.post("/run?smote=0", data=YAML + "hyperparameters:\n  rfc: {n_estimators: 50}\n",
                        headers={"X-API-Key": PASSPHRASE})
     assert resp.status_code == 200 and resp.get_json()["status"] == "success"
-    assert calls == [{"report_dir": calls[0]["report_dir"], "upload": False, "smote": False}]
+    # With the passphrase, the report is pushed to GitHub when the token is set ("auto")
+    assert calls == [{"report_dir": calls[0]["report_dir"], "upload": "auto", "smote": False, "name": calls[0]["name"]}]
     assert _runs() == 1
+
+
+def test_local_runs_save_reports_in_the_webroot(monkeypatch, tmp_path):
+    client, calls = _client(monkeypatch)
+    monkeypatch.setattr(main, "ON_CLOUD_RUN", False)
+    monkeypatch.setattr(main, "WEBROOT_DIR", str(tmp_path))
+    monkeypatch.setattr(main, "REPORTS_DIR", str(tmp_path / "reports"))
+    (tmp_path / "reports").mkdir()
+    data = client.post("/run", data=YAML).get_json()
+    name = calls[0]["name"]
+    assert calls[0]["report_dir"] == os.path.join(str(tmp_path), "reports", *name.split("/"))
+    assert data["output_path"] == f"reports/{name}/" and data["report_name"] == name
+    # Sent without the Team Passphrase, so nothing is pushed
+    assert calls[0]["upload"] == False
+    assert "Team Passphrase" in data["github"]["message"]
 
 
 def test_default_settings_without_passphrase_still_run(monkeypatch):

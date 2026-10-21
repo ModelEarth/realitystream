@@ -397,14 +397,18 @@ def default_parameters_url():
 
 
 def load_parameters(yaml_path_or_url):
-    """Load the YAML (local path or URL); normalise `models` to canonical lowercase keys."""
+    """Load the YAML (local path or URL); normalise `models` to canonical lowercase keys.
+
+    A YAML without a `models` line runs rfc. An empty one (`models: []`, as the Run Models page writes
+    when every model is unchecked) trains none, and the run still writes its report folder.
+    """
     if yaml_path_or_url.startswith(("http://", "https://")):
         text = requests.get(yaml_path_or_url, timeout=60).text
     else:
         with open(yaml_path_or_url, encoding="utf-8") as fh:
             text = fh.read()
     params = yaml.safe_load(text) or {}
-    models = params.get("models", [])
+    models = params.get("models", ["rfc"]) or []
     if isinstance(models, str):
         models = [models]
     keys = []
@@ -976,11 +980,18 @@ def write_reports(report_dir, params, results_no_smote, results_smote, importanc
     print(f"\n[REPORT] {len(os.listdir(report_dir))} files in {os.path.abspath(report_dir)}")
 
 
+def report_name(now=None):
+    """Report folder path for a run started now: {year}/run-{date}T{time}, as in the reports repo."""
+    now = now or datetime.now()
+    return now.strftime("%Y/run-%Y-%m-%dT%H-%M-%S")
+
+
 def upload_reports(report_dir, repo=REPORTS_REPO, branch="main", year=None, subfolder=None, token=None):
     """Commit every file in report_dir to {year}/{subfolder}/ in the reports repo. Returns that path."""
     token = token or require_env("GITHUB_REPORTS_TOKEN")
-    year = year or datetime.now().strftime("%Y")
-    subfolder = subfolder or datetime.now().strftime("run-%Y-%m-%dT%H-%M-%S")
+    default_year, default_subfolder = report_name().split("/")
+    year = year or default_year
+    subfolder = subfolder or default_subfolder
     remote_dir = f"{year}/{subfolder}"
     api = f"https://api.github.com/repos/{repo}"
     headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
@@ -1182,10 +1193,35 @@ def _warn_timeseries(param):
     print(f"  [WARN] timeseries.path is {state} and not used yet: {ts_path}")
 
 
-def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=None, smote=None):
+def push_report(report_dir, upload, name=None):
+    """Push the report folder to the reports repo. upload: True (GITHUB_REPORTS_TOKEN required), False
+    (don't), or "auto" (push when the token is available). Returns (uploaded_to or None, github status):
+    {"token": "available" | "missing" | None, "pushed_to": path or None, "message": text for the page}."""
+    if not upload:
+        return None, {"token": None, "pushed_to": None, "message": ""}
+    token = get_env("GITHUB_REPORTS_TOKEN")
+    if not token:
+        if upload != "auto":
+            raise MissingKey("GITHUB_REPORTS_TOKEN")
+        return None, {"token": "missing", "pushed_to": None,
+                      "message": "GITHUB_REPORTS_TOKEN is not set, so the report wasn't pushed to GitHub."}
+    year, subfolder = (name or report_name()).split("/")
+    try:
+        pushed = upload_reports(report_dir, year=year, subfolder=subfolder, token=token)
+    except Exception as exc:
+        print(f"  [WARN] GitHub push failed: {exc}")
+        return None, {"token": "available", "pushed_to": None,
+                      "message": f"GITHUB_REPORTS_TOKEN is set, but the push to GitHub failed: {exc}"}
+    return pushed, {"token": "available", "pushed_to": pushed,
+                    "message": f"GITHUB_REPORTS_TOKEN is set. Pushed to {REPORTS_REPO}/{pushed}."}
+
+
+def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=None, smote=None, name=None):
     """Load params -> fetch data -> train (plain and SMOTE) -> write report folder -> optional upload.
 
     smote: None trains both without and with SMOTE, False only without, True only with.
+    upload: True, False or "auto" (push_report). name: the {year}/run-{date-time} folder it pushes to.
+    With `models: []` no model is trained, and the report folder still has the parameters and baseline.
     An optional ``evaluation:`` block in the YAML adds k-fold cross-validation (``model_performance_cv.csv``
     and the "cv" return key); the existing report files and behaviour are unchanged when it is absent.
     Optional ``split``, ``search`` and ``hyperparameters`` sections (api/model-params.yaml) set the test
@@ -1194,7 +1230,7 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=None, smot
     print("=" * 60 + "\n  RealityStream Run Models\n" + "=" * 60)
     params = load_parameters(yaml_path)
     param = DictToObject(OrderedDict(params))
-    keys = params["models"] or ["rfc"]
+    keys = params["models"]
     print(f"[PARAMS] {yaml_path}\n   folder: {params.get('folder', 'N/A')}   models: {keys}   gpu: {gpu_enabled()}")
     settings = validate_parameters(params)
     schema = model_params_schema()
@@ -1222,13 +1258,15 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=None, smot
           f"balanced_acc {baseline['balanced_accuracy']}")
 
     results_no_smote, results_smote = [], []
-    if smote is not True:
+    if not keys:
+        print("\n[TRAIN] No models selected, so none are trained")
+    if keys and smote is not True:
         print("\n[TRAIN] Without SMOTE")
         results_no_smote = train_models(X_train, y_train, X_test, y_test, keys, random_state=seed, n_iter=n_iter,
                                         smote=False, hyperparameters=hyper)
         _apply_lift(results_no_smote, baseline)
 
-    if smote is not False:
+    if keys and smote is not False:
         print("\n[TRAIN] With SMOTE")
         results_smote = train_models(X_train, y_train, X_test, y_test, keys, random_state=seed, n_iter=n_iter,
                                      smote=True, hyperparameters=hyper)
@@ -1240,7 +1278,7 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=None, smot
     write_reports(report_dir, params, results_no_smote, results_smote, importances)
 
     cv = None
-    if evaluation:
+    if evaluation and keys:
         folds = int(evaluation.get("folds", 5))
         cv_results, cv_used = cross_validate_models(X, y, groups, keys, folds=folds,
                                                     cv=evaluation.get("cv", "stratified"),
@@ -1248,7 +1286,7 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=None, smot
         cv_results_table(cv_results).to_csv(os.path.join(report_dir, "model_performance_cv.csv"), index=False)
         cv = {"mode": cv_used, "folds": folds, "results": cv_results}
 
-    uploaded = upload_reports(report_dir) if upload else None
+    uploaded, github = push_report(report_dir, upload, name)
     print("\n[DONE]")
     summary = {
         "folder": params.get("folder"),
@@ -1259,6 +1297,7 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=None, smot
         "smote": summarize(results_smote),
         "feature_importance": {k: v.head(20).to_dict(orient="records") for k, v in importances.items()},
         "uploaded_to": uploaded,
+        "github": github,
     }
     if cv is not None:
         summary["cv"] = cv

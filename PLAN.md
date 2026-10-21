@@ -15,7 +15,8 @@ Linked from [ModelEarth/projects #63](https://github.com/ModelEarth/projects/iss
 | Repo layout: the service in `api/`, deploy scripts in `deploy/`, shared `js/` and `css/` moved in from the cloud repo, old notebooks in `archive/` | 2026-10-21 |
 | Streamlit repo archived and removed from webroot's `.gitmodules` | 2026-10-21 |
 | Model Settings: `split`, `search` and `hyperparameters` editing (below) | 2026-10-21, revision realitystream-00014-k96 |
-| Preview / Active modes on Run Models, a 2-model limit in Active mode, each model's hyperparameters in its Details | 2026-10-21 |
+| Run reports saved locally in `reports/{year}/run-{date-time}/` with a link after Run, pushed to GitHub when `GITHUB_REPORTS_TOKEN` is set, runs with no models | 2026-10-21 (needs a redeploy) |
+| Preview / Active modes on Run Models, a 2-model limit in Active mode, each model's hyperparameters in its Details | 2026-10-21, revision realitystream-00015-wgd |
 
 ## Next
 
@@ -29,7 +30,7 @@ The Colab export still has issues `run_models.py` doesn't: its data-loading cell
 
 ## Model Settings
 
-The Common Settings panel on [Run Models](models/) (`js/model-params.js`) edits `split` and `search`, and each model's `hyperparameters` are in its Details in the Models panel. Leaving a section out keeps the default behavior.
+The Common Settings panel on [Run Models](models/) (`js/model-params.js`) edits `split` and `search`, and each model's `hyperparameters` are in its Details in the Models panel, shown by its "N Parameters" button (or "Parameters" beside Expand all for every model, `#expand=params`). Leaving a section out keeps the default behavior.
 
 ```yaml
 split: {test_size: 0.2, random_state: 42}

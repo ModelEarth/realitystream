@@ -1,9 +1,11 @@
 """Offline self-check for run_models.py. Run: python -m pytest tests  (or python tests/test_run_models.py)."""
 import os
+import re
 import sys
 
 import numpy as np
 import pandas as pd
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "api"))
 import run_models as rm  # noqa: E402
@@ -450,3 +452,26 @@ if __name__ == "__main__":
     test_missing_key_has_guidance(_Patch())
     print("(alias and naics_name checks need pytest's monkeypatch)")
     print("all checks passed")
+
+
+def test_empty_models_still_write_the_report(tmp_path, monkeypatch):
+    X, y = _mixed_scale(n=200, minority=50, big=5.0)
+    monkeypatch.setattr(rm, "load_data", lambda param: (X, y))
+    monkeypatch.setattr(rm, "setup_report_folder", lambda d: os.makedirs(d, exist_ok=True))
+    params = tmp_path / "p.yaml"
+    params.write_text("folder: t\nfeatures:\n  path: x\nmodels: []\n", encoding="utf-8")
+    out = rm.run_pipeline(str(params), report_dir=str(tmp_path / "r"), smote=None)
+    assert out["no_smote"] == [] and out["smote"] == [] and "baseline" in out
+    assert (tmp_path / "r" / "parameters.yaml").exists()
+    # A YAML without a models line still runs rfc
+    params.write_text("folder: t\nfeatures:\n  path: x\n", encoding="utf-8")
+    assert rm.load_parameters(str(params))["models"] == ["rfc"]
+
+
+def test_push_report_auto_without_token(tmp_path, monkeypatch):
+    monkeypatch.setattr(rm, "get_env", lambda name, default=None: default)
+    assert rm.push_report(str(tmp_path), "auto")[1]["token"] == "missing"
+    with pytest.raises(rm.MissingKey):
+        rm.push_report(str(tmp_path), True)
+    assert rm.push_report(str(tmp_path), False) == (None, {"token": None, "pushed_to": None, "message": ""})
+    assert re.fullmatch(r"\d{4}/run-\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d", rm.report_name())
