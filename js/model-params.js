@@ -1,4 +1,4 @@
-// Model Settings panel for RealityStream pages: the YAML's split, search and hyperparameters sections.
+// Common Settings panel for RealityStream pages: the YAML's split, search and hyperparameters sections.
 // Used by realitystream/models/ and the Cloud Run home page (realitystream/api/home.html).
 //
 // The fields come from the API's GET /model-params (api/model-params.yaml), the file the API validates
@@ -10,9 +10,12 @@
 // keeps it. Only values that differ from the defaults are written, and "Default" removes one again.
 // Editing the YAML by hand updates the fields.
 //
-// Without the Team Passphrase every field shows its default but is inactive. run-panel.js sends
-// rsKeyChange when the passphrase is accepted or cleared, and rsParamError when /run rejects a value,
-// which this panel marks on that field.
+// Settings shared by more than one model (split, and search for xgboost and mlp) stay in the panel. Each
+// model's hyperparameters go in that model's details in the Models panel (model-select.js's
+// .rs-model-params slot), after its description.
+//
+// In Active mode without the Team Passphrase every field is greyed out. run-panel.js sends rsModeChange
+// when that changes, and rsParamError when /run rejects a value, which this panel marks on that field.
 //
 // Container: #modelParams, a panel section (the Panel Menu Toggle goes at its upper right).
 // Needs js-yaml, getHash and goHashQuiet from localsite.js, and run-panel.js loaded first (RSRunPanel).
@@ -21,16 +24,31 @@
   const $ = id => document.getElementById(id);
   const SECTIONS = ['split', 'search', 'hyperparameters'];
   const ALIASES = { logisticregression: 'lr', randomforest: 'rfc', randombitsforest: 'rbf', xgb: 'xgboost' };
+  // Form layout: fields whose help begins beside the field name, after a dash. The first sentence of the help
+  // goes there and the rest stays below the input, with either the service's help text or a newer one.
+  // When nothing is left below, the range goes beside the name too.
+  const BESIDE_NAME = ['hyperparameters.lr.C', 'hyperparameters.svm.C', 'hyperparameters.lr.l1_ratio'];
+  // Fields whose "Used when ..." note (shown while another field's value makes them inactive) goes beside the
+  // field name, after a dash, instead of below the input
+  const NOTE_BESIDE_NAME = ['hyperparameters.svm.degree'];
+  // Fields the form words its own way, in place of the service's help and after text: beside the field name
+  // (after a dash) and below the input (with the range)
+  const LAYOUT_TEXT = {
+    'search.n_iter': { beside: 'RandomizedSearchCV tries for XGBoost and MLP', below: 'Each with 5-fold cross-validation.' },
+  };
   const SOURCE_URL = 'https://github.com/ModelEarth/realitystream/blob/main/api/model-params.yaml';
 
   let schema = null;     // GET /model-params
-  let limited = true;    // Inactive until run-panel.js has checked the Team Passphrase
-  let titles = {};       // Model key -> title, from models/README.md
-  let builtFor = null;   // Model keys the cards were built for
+  let locked = false;    // Active mode without the Team Passphrase (run-panel.js)
   let paramError = null; // {field, message} from the last rejected run
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  // Escaped text with each short parenthetical phrase, such as "(0.001 to 1000)", kept on one line
+  function textHtml(s) {
+    return escapeHtml(s).replace(/\([^()]{1,32}\)/g, '<span class="rs-nowrap">$&</span>');
   }
 
   const STYLE = `
@@ -39,14 +57,19 @@
 .rs-mp-menu { position:absolute; top:14px; right:14px; }
 .rs-mp-note { margin:0 0 12px; opacity:.85; }
 .rs-mp-note.warn { opacity:1; color:#c2410c; } .dark .rs-mp-note.warn { color:#fb923c; }
-.rs-mp-group { border-top:1px solid rgba(127,127,127,.25); padding:12px 0 4px; }
-.rs-mp-group h3 { font-size:15px; margin:0 0 10px; }
-.rs-mp-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(210px, 1fr)); gap:14px 20px; }
+.rs-mp-intro { margin:0 0 12px; opacity:.85; }
+/* 8px more between a model's bullets and its fields */
+.rs-model-params { margin:10px 0 4px; padding-top:8px; }
+/* At most 2 columns (each at least half the width less the gap), 1 when narrower than 2 × 210px */
+.rs-mp-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(max(210px, calc((100% - 20px) / 2)), 1fr)); gap:14px 20px; }
 .rs-mp-field { min-width:0; }
-.rs-mp-top { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px; }
+/* The field name above the input (for the BESIDE_NAME fields, such as C, followed by "– " and their help's first sentence) */
+.rs-mp-top { margin-bottom:4px; font-size:13px; }
 .rs-mp-name { font-weight:600; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:13px; }
-.rs-mp-mode { display:inline-flex; border:1px solid rgba(127,127,127,.35); border-radius:6px; overflow:hidden; font-size:12px; }
-.rs-mp-mode button { background:transparent; color:inherit; border:0; padding:1px 8px; cursor:pointer; font:inherit; }
+.rs-mp-brief { font-weight:400; font-size:13px; opacity:.8; }
+/* Search / Fixed and Default, at the right of the input */
+.rs-mp-mode { display:inline-flex; flex:none; border:1px solid rgba(127,127,127,.35); border-radius:6px; overflow:hidden; font-size:12px; }
+.rs-mp-mode button { background:transparent; color:inherit; border:0; padding:5px 8px; cursor:pointer; font:inherit; }
 .rs-mp-mode button[aria-pressed="true"] { background:#2f6fde; color:#fff; }
 .rs-mp-row { display:flex; align-items:center; gap:8px; }
 .rs-mp-row input, .rs-mp-row select { flex:1; min-width:0; padding:6px 8px; border-radius:8px; border:1px solid rgba(127,127,127,.4);
@@ -55,10 +78,21 @@
 .rs-mp-row input:disabled, .rs-mp-row select:disabled { opacity:.55; }
 .rs-mp-field.changed .rs-mp-row input, .rs-mp-field.changed .rs-mp-row select { border-color:#2f6fde; }
 .rs-mp-field.error .rs-mp-row input, .rs-mp-field.error .rs-mp-row select { border-color:#c2410c; }
-.rs-mp-default { background:none; border:0; padding:0; color:inherit; text-decoration:underline; cursor:pointer; font:inherit; font-size:13px; opacity:.8; }
-.rs-mp-help { font-size:13px; opacity:.75; margin-top:4px; }
-.rs-mp-msg { font-size:13px; margin-top:4px; }
-.rs-mp-field.error .rs-mp-msg { color:#c2410c; } .dark .rs-mp-field.error .rs-mp-msg { color:#fb923c; }
+.rs-mp-default { flex:none; background:transparent; border:1px solid rgba(127,127,127,.35); border-radius:6px; padding:5px 10px;
+  color:inherit; cursor:pointer; font:inherit; font-size:12px; }
+.rs-mp-default:hover:not(:disabled) { background:rgba(127,127,127,.15); }
+/* Below the input, each on its own line: the help, the rest of the description with the range, then why the
+   field is inactive or searched, or an error */
+.rs-mp-helptext { opacity:.75; }
+.rs-mp-after { font-size:13px; margin-top:4px; }
+/* Short parenthetical phrases, such as a field's range, stay on one line */
+.rs-mp-range, .rs-nowrap { white-space:nowrap; }
+/* A field's explain note, on its own row after the field */
+.rs-mp-explain { grid-column:1 / -1; margin:0; font-size:13px; }
+/* As light as the help text; an error stays full strength */
+.rs-mp-msg { opacity:.75; }
+.rs-mp-msg:empty { display:none; }
+.rs-mp-field.error .rs-mp-msg { color:#c2410c; opacity:1; } .dark .rs-mp-field.error .rs-mp-msg { color:#fb923c; }
 `;
 
   // ---- YAML ----
@@ -149,13 +183,9 @@
 
   // ---- Fields ----
 
-  function selectedModels() {
-    let list = window.RSModelSelect ? RSModelSelect.selected() : [];
-    if (!list.length) {
-      const models = (readYaml() || {}).models;
-      list = typeof models === 'string' ? models.split(',') : [].concat(models || []);
-    }
-    return [...new Set(list.map(canonical))].filter(key => schema.hyperparameters[key]);
+  // Fields in this panel and in the models' details
+  function allFields() {
+    return document.querySelectorAll('#modelParams .rs-mp-field, .rs-model-params .rs-mp-field');
   }
 
   function groupFields(path) {
@@ -183,30 +213,49 @@
       ? '<span class="rs-mp-mode" role="group" aria-label="Search or fixed"><button type="button" data-mode="search">Search</button><button type="button" data-mode="fixed">Fixed</button></span>'
       : '';
     const range = rangeText(spec);
+    const rangeHtml = range ? `<span class="rs-mp-range">(${escapeHtml(range)})</span>` : '';
+    let help = spec.help || '', after = spec.after, beside = '';
+    const own = LAYOUT_TEXT[path.join('.')];
+    if (own) {
+      [beside, help, after] = [own.beside, own.below, ''];
+    } else if (BESIDE_NAME.includes(path.join('.')) && help) {
+      beside = (help.match(/^.*?\.(?=\s|$)/) || [help])[0];
+      help = help.slice(beside.length).trim();
+    }
+    // Lines below the input: the help, then the after text; the range ends the last of them
+    const lines = [help, after].filter(Boolean).map(textHtml);
+    beside = beside ? textHtml(beside) : '';
+    if (rangeHtml && beside && !lines.length) beside += ' ' + rangeHtml;
+    else if (rangeHtml) lines.length ? (lines[lines.length - 1] += ' ' + rangeHtml) : lines.push(rangeHtml);
     return `<div class="rs-mp-field" data-path="${path.join('.')}">
-  <div class="rs-mp-top"><label class="rs-mp-name" for="${id}">${escapeHtml(path[path.length - 1])}</label>${mode}</div>
-  <div class="rs-mp-row">${control}<button type="button" class="rs-mp-default" title="Remove from the YAML, so the default applies">Default</button></div>
-  <div class="rs-mp-help">${escapeHtml(spec.help || '')}${range ? ` <span class="rs-mp-range">(${escapeHtml(range)})</span>` : ''}</div>
-  <div class="rs-mp-msg"></div>
+  <div class="rs-mp-top"><label class="rs-mp-name" for="${id}">${escapeHtml(path[path.length - 1])}</label>${beside ? ` <span class="rs-mp-brief">– ${beside}</span>` : ''}${NOTE_BESIDE_NAME.includes(path.join('.')) ? ' <span class="rs-mp-brief rs-mp-note-beside"></span>' : ''}</div>
+  <div class="rs-mp-row">${control}${mode}<button type="button" class="rs-mp-default" title="Remove from the YAML, so the default applies">Default</button></div>
+  <div class="rs-mp-after">${lines.map(line => `<div class="rs-mp-helptext">${line}</div>`).join('')}<div class="rs-mp-msg"></div></div>
 </div>`;
   }
 
-  // A titled grid of fields; prefixes such as ['split'] or ['hyperparameters', 'rfc'] name the fields' sections
-  function groupHtml(title, prefixes) {
-    const fields = prefixes.flatMap(prefix => Object.entries(groupFields(prefix)).map(([name, spec]) => fieldHtml(prefix.concat(name), spec)));
-    return `<div class="rs-mp-group"><h3>${escapeHtml(title)}</h3><div class="rs-mp-grid">${fields.join('')}</div></div>`;
+  // A grid of fields; prefixes such as ['split'] or ['hyperparameters', 'rfc'] name the fields' sections
+  function gridHtml(prefixes) {
+    const fields = prefixes.flatMap(prefix => Object.entries(groupFields(prefix)).map(([name, spec]) => fieldHtml(prefix.concat(name), spec)
+      + (spec.explain ? `<p class="rs-mp-explain">${textHtml(spec.explain)}</p>` : '')));
+    return `<div class="rs-mp-grid">${fields.join('')}</div>`;
   }
 
-  // Build the groups: split and search, then one per selected model
+  // Split and search in this panel, and each model's hyperparameters in its details (when not there yet)
   function build() {
     const host = $('modelParams');
     if (!host || !schema) return;
-    const keys = selectedModels();
-    builtFor = keys.join(',');
     const body = host.querySelector('.rs-mp-body');
-    body.innerHTML = groupHtml('Train/test split and search', [['split'], ['search']])
-      + keys.map(key => groupHtml(titles[key] || key, [['hyperparameters', key]])).join('');
-    body.querySelectorAll('.rs-mp-field').forEach(bindField);
+    if (!body.querySelector('.rs-mp-field')) {
+      body.innerHTML = gridHtml([['split'], ['search']]);
+      body.querySelectorAll('.rs-mp-field').forEach(bindField);
+    }
+    document.querySelectorAll('.rs-model-params[data-model]').forEach(slot => {
+      const key = canonical(slot.dataset.model);
+      if (!schema.hyperparameters[key] || slot.querySelector('.rs-mp-field')) return;
+      slot.innerHTML = gridHtml([['hyperparameters', key]]);
+      slot.querySelectorAll('.rs-mp-field').forEach(bindField);
+    });
     fill();
   }
 
@@ -264,7 +313,7 @@
       if (writeValue(path, undefined)) fill();
     });
     field.querySelectorAll('.rs-mp-mode button').forEach(button => button.addEventListener('click', () => {
-      if (limited) return;
+      if (locked) return;
       if (button.dataset.mode === 'search') {
         if (writeValue(path, undefined)) fill();
       } else {
@@ -289,15 +338,15 @@
     const obj = readYaml();
     const settings = settingsOf(obj || {});
     const hasSettings = SECTIONS.some(s => Object.keys(settings[s]).length);
-    if (limited && hasSettings) {
-      setNote('This YAML changes model settings, which need the Team Passphrase. Enter it in the Models panel, or choose Reset to defaults from this panel\'s menu.', true);
-    } else if (limited) {
-      setNote('Enter the Team Passphrase to change model settings. Runs without it use these defaults.');
+    if (locked && hasSettings) {
+      setNote('This YAML changes model settings, which need the Team Passphrase. Enter it at the top of the page, or choose Reset to defaults from this panel\'s menu.', true);
+    } else if (locked) {
+      setNote('Enter the Team Passphrase at the top of the page to change model settings. Runs without it use the defaults.');
     } else {
       setNote(obj ? '' : 'The YAML below isn\'t valid right now, so these fields show defaults.', !obj);
     }
 
-    host.querySelectorAll('.rs-mp-field').forEach(field => {
+    allFields().forEach(field => {
       const path = fieldPath(field);
       const fields = groupFields(path);
       const name = path[path.length - 1];
@@ -317,10 +366,11 @@
       field.dataset.mode = spec.search ? (searched ? 'search' : 'fixed') : '';
       field.querySelectorAll('.rs-mp-mode button').forEach(b => {
         b.setAttribute('aria-pressed', b.dataset.mode === field.dataset.mode ? 'true' : 'false');
-        b.disabled = limited;
+        b.disabled = locked;
       });
       field.classList.toggle('changed', set !== undefined);
-      field.querySelector('.rs-mp-default').style.visibility = set !== undefined ? 'visible' : 'hidden';
+      // Shown only for a value set in the YAML; otherwise the input fills the column
+      field.querySelector('.rs-mp-default').style.display = set !== undefined ? '' : 'none';
 
       // only_with: the field applies only when another field has certain values
       let inactiveReason = '';
@@ -354,13 +404,17 @@
         });
       }
 
-      control.disabled = limited || searched || !!inactiveReason;
-      field.querySelector('.rs-mp-default').disabled = limited;
+      control.disabled = locked || searched || !!inactiveReason;
+      field.querySelector('.rs-mp-default').disabled = locked;
       // A value the service rejected, or one typed out of range, else why the field is inactive
       const error = (paramError && paramError.field === field.dataset.path ? paramError.message : '') || field.dataset.error || '';
       field.classList.toggle('error', !!error);
-      field.querySelector('.rs-mp-msg').textContent = error || inactiveReason
+      const noteBeside = field.querySelector('.rs-mp-note-beside');
+      if (noteBeside) noteBeside.textContent = inactiveReason ? '– ' + inactiveReason : '';
+      field.querySelector('.rs-mp-msg').textContent = error || (noteBeside ? '' : inactiveReason)
         || (searched ? 'Searched: RandomizedSearchCV picks the value.' : '');
+      const below = field.querySelector('.rs-mp-after');
+      below.hidden = !below.textContent.trim(); // No empty line below the input
     });
   }
 
@@ -376,7 +430,7 @@
       goHashQuiet({}, Object.keys(getHash()).filter(k => SECTIONS.includes(k.split('.')[0])));
     }
     paramError = null;
-    document.querySelectorAll('#modelParams .rs-mp-field').forEach(f => { f.dataset.error = ''; });
+    allFields().forEach(f => { f.dataset.error = ''; });
     fill();
   }
 
@@ -417,35 +471,33 @@
           style.textContent = STYLE;
           document.head.appendChild(style);
         }
-        host.innerHTML = '<h2>Model Settings</h2><div class="rs-mp-menu"></div><p class="rs-mp-note"></p><div class="rs-mp-body"></div>';
+        host.innerHTML = '<h2>Common Settings</h2><div class="rs-mp-menu"></div><p class="rs-mp-note"></p>'
+          + '<p class="rs-mp-intro">Train/test split and search, for all models. Each model\'s hyperparameters are in its Details, in the Models panel.</p>'
+          + '<div class="rs-mp-body"></div>';
         host.style.display = '';
         addMenu();
-        if (RSRunPanel.isLimited) limited = RSRunPanel.isLimited() !== false;
-        const titled = window.RSModelSelect ? RSModelSelect.loadModels() : Promise.resolve([]);
-        titled.then(models => {
-          // README titles such as "Random Forest Classifier (rfc)", without the key in parentheses
-          (models || []).forEach(m => { titles[canonical(m.value)] = m.label.replace(/\s*\([^)]*\)\s*$/, '').replace(/<[^>]+>/g, ''); });
-        }).catch(() => {}).then(build);
+        if (RSRunPanel.isLocked) locked = !!RSRunPanel.isLocked();
+        build();
 
-        document.addEventListener('rsModelsChanged', () => {
-          if (selectedModels().join(',') !== builtFor) build();
-        });
-        document.addEventListener('rsKeyChange', e => {
-          limited = !!(e.detail && e.detail.limited);
+        // model-select.js draws the models' details (with their .rs-model-params slots) after loading README.md
+        document.addEventListener('rsModelSelectRendered', build);
+        document.addEventListener('rsModeChange', e => {
+          locked = !!(e.detail && e.detail.locked);
           fill();
         });
         document.addEventListener('rsParamError', e => {
           paramError = e.detail && e.detail.field ? e.detail : null;
           fill();
-          const field = paramError && document.querySelector(`#modelParams .rs-mp-field[data-path="${paramError.field}"]`);
-          if (field && field.scrollIntoView) field.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          const field = paramError && Array.from(allFields()).find(f => f.dataset.path === paramError.field);
+          if (!field) return;
+          const slot = field.closest('.rs-model-params');
+          if (slot && window.RSModelSelect && RSModelSelect.expand) RSModelSelect.expand(slot.dataset.model);
+          if (field.scrollIntoView) field.scrollIntoView({ block: 'center', behavior: 'smooth' });
         });
         // param-input.js and model-select.js rewrite the YAML; a hand edit also updates the hash
         const el = pre();
         if (el && typeof MutationObserver !== 'undefined') {
-          new MutationObserver(() => {
-            if (selectedModels().join(',') !== builtFor) build(); else fill();
-          }).observe(el, { childList: true, characterData: true, subtree: true });
+          new MutationObserver(fill).observe(el, { childList: true, characterData: true, subtree: true });
         }
         const editor = $('paramText');
         if (editor) editor.addEventListener('input', syncHashFromYaml);

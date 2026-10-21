@@ -8,9 +8,15 @@
 // realitystream/models/ and the RealityStream Cloud Run home page (realitystream/api/home.html).
 //
 // render() shows the model titles with checkboxes. Each title expands to its details, and
-// "Expand all" opens every one. The checkboxes stay in sync with the URL hash (#models=lr,rfc),
+// "Expand all" opens every one and adds #expand=all to the page URL (so a link loads expanded), and
+// "Collapse all" removes it. The checkboxes stay in sync with the URL hash (#models=lr,rfc),
 // which param-input.js copies into the YAML's models: line. Without models in the hash,
-// the checkboxes show the models already in the YAML (#paramText pre).
+// the checkboxes show the models already in the YAML (#paramText pre). All of them may be unchecked.
+// Each model's details end with an empty .rs-model-params[data-model] slot, where model-params.js puts
+// that model's hyperparameter fields.
+//
+// run-panel.js calls setLocked() (in Active mode until the Team Passphrase is entered) and setNote()
+// (the selection limit, shown above the checkboxes).
 //
 // Needs getHash() and goHash() from localsite/js/localsite.js. Uses showdown for the details when the
 // page has loaded it, otherwise a small built-in converter.
@@ -102,6 +108,27 @@
     });
   }
 
+  // Keep each short parenthetical phrase in the element's text, such as "(e.g., churn prediction)", on one line
+  function nowrapParens(el) {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) if (/\([^()]{1,32}\)/.test(walker.currentNode.nodeValue)) nodes.push(walker.currentNode);
+    nodes.forEach(node => {
+      const frag = document.createDocumentFragment();
+      let last = 0;
+      node.nodeValue.replace(/\([^()]{1,32}\)/g, (match, at) => {
+        frag.appendChild(document.createTextNode(node.nodeValue.slice(last, at)));
+        const span = document.createElement('span');
+        span.className = 'rs-nowrap';
+        span.textContent = match;
+        frag.appendChild(span);
+        last = at + match.length;
+      });
+      frag.appendChild(document.createTextNode(node.nodeValue.slice(last)));
+      node.parentNode.replaceChild(frag, node);
+    });
+  }
+
   // Render README Markdown (for example the intro or outro) into an element
   function renderMarkdown(el, md) {
     if (!el) return;
@@ -135,27 +162,16 @@
     return yamlModels();
   }
 
-  // Single mode (set by run-panel.js without the Team Passphrase) allows one model at a time.
-  // The toolbar's #rsApiKey holds run-panel.js's Team Passphrase field, at the right of the single-mode note.
-  let single = false;
-
-  // In single mode, keep only the first checked model and pass that on to the hash and YAML
-  function enforceSingle() {
-    if (!single) return;
-    const checked = checkboxes().filter(cb => cb.checked);
-    if (checked.length > 1) {
-      checked.slice(1).forEach(cb => { cb.checked = false; });
-      syncToHash();
-    }
-  }
+  // Locked (set by run-panel.js) greys out the checkboxes; the Details toggles still work
+  let locked = false;
 
   // Check the boxes that match the hash (or the YAML)
   function syncFromState() {
     const selected = selectedFromHashOrYaml();
     checkboxes().forEach(cb => {
       cb.checked = selected.includes(cb.value.toLowerCase());
+      cb.disabled = locked;
     });
-    enforceSingle();
     announce();
   }
 
@@ -164,24 +180,38 @@
     document.dispatchEvent(new Event('rsModelsChanged'));
   }
 
-  function setSingle(on) {
-    single = !!on;
-    const note = document.querySelector('.rs-models-single');
-    if (note) note.style.display = single ? 'inline' : 'none';
-    enforceSingle();
+  function setLocked(on) {
+    locked = !!on;
+    checkboxes().forEach(cb => { cb.disabled = locked; });
+    document.querySelectorAll('.rs-model-select').forEach(el => el.classList.toggle('rs-models-locked', locked));
   }
 
-  // Write the checked boxes to #models= so param-input.js updates the YAML
+  // HTML above the checkboxes, or '' to hide it
+  function setNote(html) {
+    document.querySelectorAll('.rs-models-note').forEach(note => {
+      note.innerHTML = html || '';
+      note.hidden = !html;
+    });
+  }
+
+  // Write the checked boxes to #models= so param-input.js updates the YAML.
+  // With none checked, empty the YAML's models: line first, since the YAML is what's shown without #models=.
   function syncToHash() {
     const values = checkboxes().filter(cb => cb.checked).map(cb => cb.value);
-    if (typeof getHash !== 'function' || typeof goHash !== 'function') return;
-    const hash = getHash();
+    if (typeof goHash !== 'function') return;
     if (values.length) {
-      hash.models = values.join(',');
-    } else {
-      delete hash.models;
+      goHash({ models: values.join(',') });
+      return;
     }
-    goHash(hash);
+    const pre = document.querySelector('#paramText pre');
+    if (pre && typeof jsyaml !== 'undefined') {
+      try {
+        const obj = jsyaml.load(pre.textContent || '') || {};
+        obj.models = [];
+        pre.textContent = typeof convertToYAML === 'function' ? convertToYAML(obj) : jsyaml.dump(obj, { lineWidth: -1 });
+      } catch (e) {} // The YAML is being edited and isn't valid yet
+    }
+    goHash({}, ['models']);
   }
 
   let bound = false;
@@ -192,15 +222,6 @@
       if (cb.dataset.rsBound) return;
       cb.dataset.rsBound = '1';
       cb.addEventListener('change', () => {
-        if (single && cb.checked) {
-          checkboxes().forEach(c => { if (c !== cb) c.checked = false; });
-        }
-        // A run needs at least one model, so the last checked box stays checked
-        if (!checkboxes().some(c => c.checked)) {
-          cb.checked = true;
-          cb.title = 'At least one model is required';
-          return;
-        }
         syncToHash();
         announce();
       });
@@ -220,9 +241,8 @@
   const STYLE = `
 .rs-model-select { margin:8px 0; }
 .rs-models-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; margin:0 0 8px; font-size:14px; }
-.rs-api-key-slot { margin-left:auto; }
-.rs-api-key-slot .rs-api-key { margin:0 !important; }
-.rs-models-single { opacity:.75; }
+.rs-models-note { margin:0 0 8px; color:#c2410c; } .dark .rs-models-note { color:#fb923c; }
+.rs-models-locked .rs-model-option { opacity:.55; cursor:default; }
 .rs-models-toolbar button { background:none; border:0; padding:0; color:inherit; text-decoration:underline; cursor:pointer; font:inherit; opacity:.8; }
 .rs-model-row { border-top:1px solid rgba(127,127,127,.25); }
 .rs-model-row:last-child { border-bottom:1px solid rgba(127,127,127,.25); }
@@ -235,9 +255,12 @@
 .rs-model-details { padding:0 0 10px 30px; font-size:14px; }
 .rs-model-details ul { margin:4px 0; padding-left:18px; }
 .rs-model-details p { margin:4px 0; }
+.rs-model-params:empty { display:none; }
+.rs-nowrap { white-space:nowrap; }
 `;
 
   function setExpanded(row, open) {
+    if (!row) return;
     const btn = row.querySelector('.rs-model-toggle');
     const details = row.querySelector('.rs-model-details');
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -256,18 +279,18 @@
         document.head.appendChild(style);
       }
       host.classList.add('rs-model-select');
-      host.innerHTML = '<div class="rs-models-toolbar"><button type="button" class="rs-expand-all">Expand all</button>'
-        + `<span class="rs-models-single" style="display:${single ? 'inline' : 'none'}">Enter the Team Passphrase to choose more than one model.</span>`
-        + '<div id="rsApiKey" class="rs-api-key-slot"></div></div>'
+      host.innerHTML = '<div class="rs-models-toolbar"><button type="button" class="rs-expand-all">Expand all</button></div>'
+        + '<div class="rs-models-note" hidden></div>'
         + models.map(m => `
-<div class="rs-model-row">
+<div class="rs-model-row" data-model="${escapeHtml(m.value)}">
   <div class="rs-model-head">
     <label class="rs-model-option"><input type="checkbox" name="model" value="${escapeHtml(m.value)}"> ${m.label}</label>
     <button type="button" class="rs-model-toggle" aria-expanded="false" title="Details"><span class="rs-chevron">&#9656;</span> Details</button>
   </div>
-  <div class="rs-model-details" hidden>${mdToHtml(m.details)}</div>
+  <div class="rs-model-details" hidden><div class="rs-model-text">${mdToHtml(m.details)}</div><div class="rs-model-params" data-model="${escapeHtml(m.value)}"></div></div>
 </div>`).join('');
       resolveLinks(host);
+      host.querySelectorAll('.rs-model-option, .rs-model-text').forEach(nowrapParens);
 
       const rows = Array.from(host.querySelectorAll('.rs-model-row'));
       const allBtn = host.querySelector('.rs-expand-all');
@@ -283,16 +306,31 @@
         const open = allBtn.textContent === 'Expand all';
         rows.forEach(row => setExpanded(row, open));
         updateAllBtn();
+        // Without a history entry or a hash change event: only the details open or close
+        if (typeof goHashQuiet === 'function') {
+          if (open) goHashQuiet({ expand: 'all' }); else goHashQuiet({}, ['expand']);
+        }
       });
+      // #expand=all opens every model's details when the page loads
+      if (typeof getHash === 'function' && getHash().expand === 'all') {
+        rows.forEach(row => setExpanded(row, true));
+        updateAllBtn();
+      }
       bind();
-      // run-panel.js places its Team Passphrase field in #rsApiKey
+      // model-params.js fills each model's .rs-model-params, and run-panel.js applies the mode
       document.dispatchEvent(new Event('rsModelSelectRendered'));
       return models;
     });
   }
 
+  // Open a model's details (model-params.js, to show a field the API rejected)
+  function expand(value) {
+    const row = Array.from(document.querySelectorAll('.rs-model-row')).find(r => r.dataset.model === value);
+    setExpanded(row, true);
+  }
+
   window.RSModelSelect = {
-    loadReadme, loadModels, render, renderMarkdown, bind, setSingle,
+    loadReadme, loadModels, render, renderMarkdown, bind, setLocked, setNote, expand,
     selected: () => checkboxes().filter(cb => cb.checked).map(cb => cb.value),
   };
 

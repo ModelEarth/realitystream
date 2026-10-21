@@ -12,8 +12,8 @@
   The same shared files make up realitystream/models/:
   realitystream/js/param-input.js (parameter base, features and targets, YAML),
   realitystream/js/model-select.js (models and their details, from realitystream/models/README.md) and
-  realitystream/js/run-panel.js (today's usage, SMOTE choice, Run button and results) and
-  realitystream/js/model-params.js (Model Settings: split, search and each model's hyperparameters).
+  realitystream/js/run-panel.js (Preview / Active modes, Team Passphrase, today's usage, SMOTE choice, Run button and results) and
+  realitystream/js/model-params.js (Common Settings: split and search, and each model's hyperparameters in its details).
 -->
 <link rel="stylesheet" href="{{ASSET_BASE}}realitystream/css/param.css">
 <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
@@ -39,18 +39,20 @@ a { color:var(--accent); }
 </head>
 <body data-param-input="realitystream-api">
 <main>
+<!-- Preview / Active switch and the Team Passphrase, built by run-panel.js -->
+<div id="rsMode"></div>
 <h1>RealityStream Run Models</h1>
 <p class="sub">Choose parameters, datasets and models, then run them on Google Cloud Run. Opening this page doesn't run a model; only the Run button does.
 Also at <a href="https://model.earth/realitystream/models/">model.earth/realitystream/models</a>.</p>
 
 <section class="panel" id="rsUsage"></section>
 
-<section class="panel">
+<section class="panel" id="rsModels">
   <h2>Models</h2>
   <div id="modelSelect"></div>
 </section>
 
-<!-- Model Settings, built by model-params.js from /model-params -->
+<!-- Common Settings, built by model-params.js from /model-params -->
 <section class="panel" id="modelParams"></section>
 
 <section class="panel" data-rs-layout>

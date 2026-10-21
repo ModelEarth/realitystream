@@ -15,6 +15,7 @@ Linked from [ModelEarth/projects #63](https://github.com/ModelEarth/projects/iss
 | Repo layout: the service in `api/`, deploy scripts in `deploy/`, shared `js/` and `css/` moved in from the cloud repo, old notebooks in `archive/` | 2026-10-21 |
 | Streamlit repo archived and removed from webroot's `.gitmodules` | 2026-10-21 |
 | Model Settings: `split`, `search` and `hyperparameters` editing (below) | 2026-10-21, revision realitystream-00014-k96 |
+| Preview / Active modes on Run Models, a 2-model limit in Active mode, each model's hyperparameters in its Details | 2026-10-21 |
 
 ## Next
 
@@ -28,7 +29,7 @@ The Colab export still has issues `run_models.py` doesn't: its data-loading cell
 
 ## Model Settings
 
-The Model Settings panel on [Run Models](models/) (`js/model-params.js`) edits three YAML sections. Leaving a section out keeps the default behavior.
+The Common Settings panel on [Run Models](models/) (`js/model-params.js`) edits `split` and `search`, and each model's `hyperparameters` are in its Details in the Models panel. Leaving a section out keeps the default behavior.
 
 ```yaml
 split: {test_size: 0.2, random_state: 42}
@@ -40,7 +41,8 @@ hyperparameters:
 
 - `api/model-params.yaml` defines every field. The API validates against it and serves it at `/model-params`, and the panel is built from it, so the two can't disagree.
 - The panel writes only values that differ from the defaults, mirrors them in the URL hash for shared links, and reads hand edits of the YAML back.
-- Without the Team Passphrase, the fields show their defaults but are inactive, and `/run` answers 403 to a YAML with these sections. An invalid value gets 400 naming the field, which the panel marks.
+- Preview mode (the default, `js/run-panel.js`) lets anyone check any models and edit every field, with Run Models gray. Active mode shows the Team Passphrase field and greys out the rest until it's entered, then allows 2 models a run (`MODEL_LIMIT`; the page enforces it, not the service).
+- `/run` answers 403 to a YAML with these sections without the Team Passphrase. An invalid value gets 400 naming the field, which the page marks, opening that model's Details.
 - Results show each model's `params_used`.
 - Logistic Regression keeps a `penalty` choice. scikit-learn 1.8 deprecated that argument, so `run_models._lr_kwargs` translates it to `l1_ratio` and `C`.
 

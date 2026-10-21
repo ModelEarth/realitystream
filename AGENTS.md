@@ -29,7 +29,7 @@ The front end only sends YAML (the text of `#paramText pre`) to `POST /run`. Any
 
 `GET /` (HTML for browsers, usage JSON otherwise), `GET /health`, `GET /key`, `GET /parameters`, `GET /model-params`, `POST /run[?upload=1][&smote=0|1]`, and `GET /keys` (local only, never on Cloud Run).
 
-- Team Passphrase: header `X-API-Key` matching `REALITYSTREAM_API_KEY` (Secret Manager `realitystream-api-key`). With it: 20 runs a day, any models, uploads. Without it: 1 run a day of 1 model.
+- Team Passphrase: header `X-API-Key` matching `REALITYSTREAM_API_KEY` (Secret Manager `realitystream-api-key`). With it: 20 runs a day, any models, uploads. Without it: 1 run a day of 1 model. The page's Active mode also limits a run to 2 models (`MODEL_LIMIT` in `js/run-panel.js`); the service doesn't.
 - Model settings: the YAML's `split`, `search` and `hyperparameters` sections, defined in `api/model-params.yaml` (served at `/model-params`). `run_models.validate_parameters` checks them, and `/run` returns HTTP 400 with `field` before the run is counted. Without the Team Passphrase, any of these sections gets HTTP 403 `key_needed`. A schema default for a field that isn't searched must match `make_model()`; a test checks this.
 - Daily cost cap `DAILY_COST_LIMIT_USD` (default $0.20). Usage totals in Firestore (collection `usage`), reset at midnight Eastern.
 - CORS allows only https://model.earth and http://localhost:8887 (and 127.0.0.1:8887). Add origins in `ALLOWED_ORIGINS`.
@@ -64,7 +64,7 @@ ASSET_BASE=http://localhost:8887/ python api/main.py  # home page loads your loc
 python -m pytest tests                                # also runs in CI (.github/workflows/tests.yml)
 ```
 
-To point the local page at the local API, open http://localhost:8887/realitystream/models/?api=http://localhost:8080/ (`apiBase()` in `js/run-panel.js` honors `?api=` only on localhost). The Model Settings panel (`js/model-params.js`) appears only when that API serves `/model-params`.
+To point the local page at the local API, open http://localhost:8887/realitystream/models/?api=http://localhost:8080/ (`apiBase()` in `js/run-panel.js` honors `?api=` only on localhost). The Common Settings panel (`js/model-params.js`) appears only when that API serves `/model-params`.
 
 ## Related repos
 

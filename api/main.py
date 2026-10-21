@@ -7,7 +7,7 @@ RealityStream serverless API for Google Cloud Run: Flask wrapper around run_mode
     GET  /key                  whether header X-API-Key is valid
     GET  /parameters           preset YAML files in parameters/
     GET  /model-params         settings the YAML's split, search and hyperparameters sections may set
-                               (api/model-params.yaml), for the Model Settings panel
+                               (api/model-params.yaml), for the Common Settings panel and each model's fields
     GET  /keys                 local only (not on Cloud Run): paste NAME=value lines into the OS credential store
     POST /run[?upload=1][&smote=0|1]
                                body = parameters.yaml text, or JSON {"parameters": "parameters-blinks.yaml"}
