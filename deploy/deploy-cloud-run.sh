@@ -29,6 +29,29 @@ if [ ! -x "$RBF" ]; then
   rm -rf "$tmp"
 fi
 
+# Copy GITHUB_REPORTS_TOKEN from the environment or the shared env file into Secret Manager when the secret is
+# missing or differs, and let the service's account read it. Values are passed through pipes, never printed.
+sync_secret() {
+  local name="$1" secret="$2" value current sa
+  value="$(read_setting "$name")"
+  [ -n "$value" ] || return 0
+  if ! gcloud secrets describe "$secret" --project "$PROJECT" --quiet >/dev/null 2>&1; then
+    printf %s "$value" | gcloud secrets create "$secret" --project "$PROJECT" --replication-policy=automatic --data-file=- --quiet >/dev/null
+    echo "Created secret $secret from $name"
+  else
+    current="$(gcloud secrets versions access latest --secret "$secret" --project "$PROJECT" 2>/dev/null || true)"
+    if [ "$current" != "$value" ]; then
+      printf %s "$value" | gcloud secrets versions add "$secret" --project "$PROJECT" --data-file=- --quiet >/dev/null
+      echo "Updated secret $secret from $name"
+    fi
+  fi
+  sa="$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')-compute@developer.gserviceaccount.com"
+  gcloud secrets add-iam-policy-binding "$secret" --project "$PROJECT" --member="serviceAccount:$sa" \
+    --role=roles/secretmanager.secretAccessor --condition=None --quiet >/dev/null
+}
+gcloud services enable secretmanager.googleapis.com --project "$PROJECT" --quiet
+sync_secret GITHUB_REPORTS_TOKEN github-reports-token
+
 # Secrets, attached when the project has them:
 #   realitystream-api-key  REALITYSTREAM_API_KEY, the Team Passphrase. Without it, callers get 1 model once per day (see api/main.py).
 #   github-reports-token   GITHUB_REPORTS_TOKEN, so runs with the Team Passphrase push their output to modelearth/reports.
