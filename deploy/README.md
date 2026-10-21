@@ -68,7 +68,12 @@ To use a Team Passphrase on Cloud Run, store it in Secret Manager as `realitystr
       --member="serviceAccount:$(gcloud projects describe $GOOGLE_PROJECT_ID --format='value(projectNumber)')-compute@developer.gserviceaccount.com" \
       --role="roles/secretmanager.secretAccessor"
 
-Uploading reports (`/run?upload=1`) needs the Team Passphrase, and GITHUB_REPORTS_TOKEN as a secret.
+Runs with the Team Passphrase push their output folder to GitHub modelearth/reports when the service has GITHUB_REPORTS_TOKEN. Store it as the secret `github-reports-token`, which deploy/deploy-cloud-run.sh also attaches when it exists:
+
+    printf %s "$GITHUB_REPORTS_TOKEN" | gcloud secrets create github-reports-token --data-file=-
+    gcloud secrets add-iam-policy-binding github-reports-token \
+      --member="serviceAccount:$(gcloud projects describe $GOOGLE_PROJECT_ID --format='value(projectNumber)')-compute@developer.gserviceaccount.com" \
+      --role="roles/secretmanager.secretAccessor"
 
 </div>
 

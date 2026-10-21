@@ -29,12 +29,16 @@ if [ ! -x "$RBF" ]; then
   rm -rf "$tmp"
 fi
 
-# API key: when the project has a realitystream-api-key secret, Cloud Run reads REALITYSTREAM_API_KEY from it.
-# Without a key, callers get 1 model once per day (see api/main.py).
-SECRETS_FLAG=""
-if gcloud secrets describe realitystream-api-key --project "$PROJECT" --quiet >/dev/null 2>&1; then
-  SECRETS_FLAG="--set-secrets=REALITYSTREAM_API_KEY=realitystream-api-key:latest"
-fi
+# Secrets, attached when the project has them:
+#   realitystream-api-key  REALITYSTREAM_API_KEY, the Team Passphrase. Without it, callers get 1 model once per day (see api/main.py).
+#   github-reports-token   GITHUB_REPORTS_TOKEN, so runs with the Team Passphrase push their output to modelearth/reports.
+SECRETS=""
+for pair in REALITYSTREAM_API_KEY=realitystream-api-key GITHUB_REPORTS_TOKEN=github-reports-token; do
+  if gcloud secrets describe "${pair#*=}" --project "$PROJECT" --quiet >/dev/null 2>&1; then
+    SECRETS="${SECRETS:+$SECRETS,}$pair:latest"
+  fi
+done
+SECRETS_FLAG="${SECRETS:+--set-secrets=$SECRETS}"
 
 case "${1:-cpu}" in
   cpu) gcloud run deploy realitystream --source . --project "$PROJECT" --region "$REGION" --allow-unauthenticated \

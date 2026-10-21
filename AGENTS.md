@@ -47,7 +47,7 @@ cd realitystream
 ```
 
 - Needs `gcloud auth login`. Settings come from the environment or the env file named in `automation/paths.yaml`, through `deploy/read-setting.sh`: `GOOGLE_PROJECT_ID` (required), `GOOGLE_REGION` (default us-central1), `GOOGLE_TEAM_EMAILS`, `GOOGLE_TEAM_ROLES`. Never print their values.
-- The script also runs `deploy/add-team-members.sh` (IAM roles for team emails), downloads the Random Bits Forest binary into `models/random-bits-forest/rbf/`, and attaches the `realitystream-api-key` secret when it exists.
+- The script also runs `deploy/add-team-members.sh` (IAM roles for team emails), downloads the Random Bits Forest binary into `models/random-bits-forest/rbf/`, and attaches the `realitystream-api-key` and `github-reports-token` secrets when they exist.
 - No Dockerfile: buildpacks read `requirements.txt`, `Procfile` and `.python-version`.
 - `.gcloudignore` uploads only `api/`, `parameters/`, the buildpack files and the RBF binary. A new file the service reads elsewhere needs a `!` line there. Check with `gcloud meta list-files-for-upload .`
 - `--max-instances 1` keeps the run and cost counters exact. Keep it.
