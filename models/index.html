@@ -22,6 +22,7 @@
 <style>
 .rs-panel { border-radius:12px; padding:18px 20px; margin:0 0 16px; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.06); }
 .dark .rs-panel { background:#1d2128; box-shadow:none; }
+.rs-panel:empty { display:none; } /* Such as #infoFile, which has content only with display=everything */
 .rs-panel h2 { font-size:18px; margin:0 0 12px; }
 .rs-label { font-weight:600; margin:16px 0 6px; }
 /* #parambase uses localsite's .ls-select (arrow kept clear of long text) and widens to its longest option */
@@ -102,6 +103,9 @@ document.addEventListener('DOMContentLoaded', () => {
   reportsLink.textContent = 'Reports';
   runButton.parentElement.appendChild(reportsLink);
 });
+
+// #infoFile, which localsite's navigation.js adds at the bottom of #main-content, takes the panel style
+waitForElm('#infoFile').then(infoFile => infoFile.classList.add('contentpadding', 'rs-panel'));
 
 // The README's intro and closing text surround the settings; its model sections are in the picker
 RSModelSelect.loadReadme().then(readme => {
