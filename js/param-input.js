@@ -1766,12 +1766,11 @@ function createChooseLinks() {
         Choose:
         
         <a href="#" onclick="rsChooseModels(); return false;">models</a> | 
-        <a href="#geoview=country">location</a> 
+        <a href="/realitystream/models/#geoview=country">location</a> 
         <div class="local" style="display:none">
             | <a href="#" onclick="goToPage('/localsite/info'); return false;">features</a> |
             <a href="#" onclick="goToPage('/localsite/timeline'); return false;">targets</a>
         </div>
-        <span style="font-style: italic; font-size: 0.9em;"> (Location selector not yet integrated.)</span>
     `;
     
     // Insert after the parambase select
