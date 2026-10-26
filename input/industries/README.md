@@ -1,5 +1,7 @@
 [RealityStream](../../)
 
+**TO DO in the [Generate Industry Features](https://colab.research.google.com/drive/1HJnuilyEFjBpZLrgxDa4S0diekwMeqnh?usp=sharing) Colab:** change `merged_df.to_csv(f"{state}-all-years.csv")` to `merged_df.to_csv(f"{state}-all-years.csv", index=False)`, then regenerate [community-timelines/training/all-years](https://github.com/ModelEarth/community-timelines/tree/main/training/all-years). Without `index=False`, pandas writes the row numbers (0, 1, 2...) as an unnamed first column, so each file starts with a comma. The backup, features/industries-features-bkup.ipynb, has the change. (`api/run_models.py` drops that column, so runs aren't affected.)
+
 # Run Models Colab
 
 **Our primary CoLab:**
