@@ -492,7 +492,7 @@ def test_run_pipeline_writes_charts_and_lists_failed_models(tmp_path, monkeypatc
     assert "y_pred" not in out["smote"][0] and "predictor" not in out["smote"][0]
     import json as _json
     listed = _json.loads((tmp_path / "r" / "files.json").read_text(encoding="utf-8"))["files"]
-    for name in ["metrics_dashboard.png", "roc_curves_comparison.png", "confusion_matrices.png",
+    for name in ["metrics_dashboard.png", "metrics_comparison.png", "roc_curves_comparison.png", "confusion_matrices.png",
                  "training_time_comparison.png"] + [f"feature_importance_{k}.png" for k in ("lr", "rfc", "svm", "mlp", "xgboost")]:
         assert name in listed and (tmp_path / "r" / name).read_bytes()[:4] == b"\x89PNG"
     readme = (tmp_path / "r" / "README.md").read_text(encoding="utf-8")
@@ -550,8 +550,8 @@ def test_rbf_runs_once_per_pass_and_reaches_the_charts(tmp_path, monkeypatch):
     assert importances["rbf"].attrs["method"] == "permutation" and importances["rbf"]["Feature"][0].startswith(X.columns[0])
     from charts import write_charts
     written = write_charts(str(tmp_path), results, y[90:], importances)
-    assert written == ["metrics_dashboard.png", "roc_curves_comparison.png", "confusion_matrices.png",
-                       "training_time_comparison.png", "feature_importance_rbf.png"]
+    assert written == ["metrics_dashboard.png", "metrics_comparison.png", "roc_curves_comparison.png",
+                       "confusion_matrices.png", "training_time_comparison.png", "feature_importance_rbf.png"]
 
 
 def test_upload_reports_sends_images_as_base64_blobs(tmp_path, monkeypatch):

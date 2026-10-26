@@ -10,7 +10,7 @@ pushes to github.com/modelearth/reports:
       model_performance_report_no_smote.csv
       model_performance_report_smote.csv
       feature_importance_xgboost.csv
-      metrics_dashboard.png, roc_curves_comparison.png, confusion_matrices.png,
+      metrics_dashboard.png, metrics_comparison.png, roc_curves_comparison.png, confusion_matrices.png,
       training_time_comparison.png, feature_importance_{model}.png (api/charts.py)
 
 Usage:

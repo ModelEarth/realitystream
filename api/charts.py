@@ -2,6 +2,7 @@
 Report charts: PNGs in a run's report folder, which its index.html (localsite's displayCharts()) shows.
 
     metrics_dashboard.png           accuracy, ROC-AUC, F1, precision, recall and balanced accuracy per model
+    metrics_comparison.png          the same six metrics, one panel each (3 x 2), with each bar's value
     roc_curves_comparison.png       each model's ROC curve (binary targets)
     confusion_matrices.png          one matrix per model
     training_time_comparison.png    training seconds per model
@@ -53,6 +54,27 @@ def metrics_dashboard(plt, results, y_true, label):
     ax.set_title(f"Model metrics{label}")
     ax.legend(loc="lower right", fontsize=9)
     ax.grid(axis="y", alpha=0.3)
+    return fig
+
+
+def metrics_comparison(plt, results, y_true, label):
+    """One panel per metric, like the 2025 Colab's Eye Blinks dashboard, with all six metrics."""
+    fig, axes = plt.subplots(3, 2, figsize=(14, 14))
+    names = [_name(r["model_type"]) for r in results]
+    colors = [_color(r["model_type"]) for r in results]
+    for ax, (field, title) in zip(axes.flat, METRICS):
+        values = [r.get(field) for r in results]
+        bars = ax.bar(names, [v or 0 for v in values], color=colors, alpha=0.8, edgecolor="black", linewidth=1.2)
+        for bar, value in zip(bars, values):
+            if value is not None:
+                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(), f"{value:.4f}",
+                        ha="center", va="bottom", fontsize=9, fontweight="bold")
+        ax.set_ylabel(title)
+        ax.set_title(f"{title} comparison", fontweight="bold")
+        ax.set_ylim(0, 1.1)
+        ax.grid(axis="y", alpha=0.3)
+    fig.suptitle(f"Model metrics{label}", fontsize=14)
+    fig.tight_layout()
     return fig
 
 
@@ -133,6 +155,7 @@ def feature_importance(plt, key, title, df, label):
 
 CHARTS = [
     ("metrics_dashboard.png", metrics_dashboard),
+    ("metrics_comparison.png", metrics_comparison),
     ("roc_curves_comparison.png", roc_curves),
     ("confusion_matrices.png", confusion_matrices),
     ("training_time_comparison.png", training_times),
