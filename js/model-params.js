@@ -43,6 +43,8 @@
   let schema = null;     // GET /model-params
   let locked = false;    // Active mode without the Team Passphrase (run-panel.js)
   let paramError = null; // {field, message} from the last rejected run
+  const lastCustom = {};  // {path: value} last set in the YAML, which Custom puts back
+  let cleared = null;     // Settings Restore Defaults removed, which Restore Custom puts back
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -61,6 +63,15 @@
 .rs-mp-note.warn { opacity:1; color:#c2410c; } .dark .rs-mp-note.warn { color:#fb923c; }
 .rs-mp-intro { margin:0 0 12px; opacity:.85; }
 .rs-mp-subhead { margin:18px 0 6px; font-size:15px; }
+/* A checkbox field: the checkbox, its name, then Default / Custom at the far right */
+.rs-mp-top-check { display:flex; align-items:center; gap:8px; }
+.rs-mp-top-check input[type="checkbox"] { flex:none; width:18px; height:18px; margin:0; }
+.rs-mp-top-check .rs-mp-choice { margin-left:auto; }
+.rs-mp-actions { display:flex; gap:8px; margin-top:16px; }
+.rs-mp-restore { background:transparent; border:1px solid rgba(127,127,127,.35); border-radius:6px; padding:6px 12px;
+  color:inherit; cursor:pointer; font:inherit; font-size:13px; }
+.rs-mp-restore:hover:not(:disabled) { background:rgba(127,127,127,.15); }
+.rs-mp-restore:disabled { opacity:.5; cursor:default; }
 /* 8px more between a model's bullets and its fields */
 .rs-model-params { margin:10px 0 4px; padding-top:8px; }
 /* At most 2 columns (each at least half the width less the gap), 1 when narrower than 2 × 210px */
@@ -78,13 +89,17 @@
 .rs-mp-row input, .rs-mp-row select { flex:1; min-width:0; padding:6px 8px; border-radius:8px; border:1px solid rgba(127,127,127,.4);
   background:transparent; color:inherit; font:inherit; font-size:14px; }
 .dark .rs-mp-row select option { background:#1d2128; }
-.rs-mp-row input[type="checkbox"] { flex:none; width:18px; height:18px; margin:5px 0; padding:0; }
-.rs-mp-row input:disabled, .rs-mp-row select:disabled { opacity:.55; }
-.rs-mp-field.changed .rs-mp-row input, .rs-mp-field.changed .rs-mp-row select { border-color:#2f6fde; }
-.rs-mp-field.error .rs-mp-row input, .rs-mp-field.error .rs-mp-row select { border-color:#c2410c; }
-.rs-mp-default { flex:none; background:transparent; border:1px solid rgba(127,127,127,.35); border-radius:6px; padding:5px 10px;
-  color:inherit; cursor:pointer; font:inherit; font-size:12px; }
-.rs-mp-default:hover:not(:disabled) { background:rgba(127,127,127,.15); }
+.rs-mp-row input:disabled, .rs-mp-row select:disabled, .rs-mp-choice:disabled { opacity:.55; }
+.rs-mp-field.changed .rs-mp-row input, .rs-mp-field.changed .rs-mp-row select:not(.rs-mp-choice) { border-color:#2f6fde; }
+.rs-mp-field.error .rs-mp-row input, .rs-mp-field.error .rs-mp-row select:not(.rs-mp-choice) { border-color:#c2410c; }
+/* Default / Custom: whether the YAML sets the field */
+.rs-mp-row select.rs-mp-choice, .rs-mp-choice { flex:none; width:auto; min-height:0; padding:5px 22px 5px 8px; border-radius:6px;
+  border:1px solid rgba(127,127,127,.35); color:inherit; font:inherit; font-size:12px; cursor:pointer;
+  -webkit-appearance:none; appearance:none; /* localsite's select arrow, in gray for light and dark */
+  background:transparent url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="%23888" d="M7 10l5 5 5-5z"/></svg>') no-repeat right 2px center;
+  background-size:20px; }
+.dark .rs-mp-choice option { background:#1d2128; }
+.rs-mp-field.changed .rs-mp-choice { border-color:#2f6fde; }
 /* Below the input, each on its own line: the help, the rest of the description with the range, then why the
    field is inactive or searched, or an error */
 .rs-mp-helptext { opacity:.75; }
@@ -149,6 +164,8 @@
     }
     const settings = settingsOf(obj);
     const [section, a, b] = path;
+    if (value !== undefined) lastCustom[path.join('.')] = value;
+    cleared = null; // A hand edit dismisses Restore Custom, bringing back Restore Defaults
     if (section === 'hyperparameters') {
       const model = settings.hyperparameters[a] || {};
       if (value === undefined) delete model[b]; else model[b] = value;
@@ -208,7 +225,7 @@
     if (spec.type === 'choice') {
       control = `<select id="${id}">` + spec.options.map(o => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join('') + '</select>';
     } else if (spec.type === 'bool') {
-      control = `<input id="${id}" type="checkbox">`;
+      control = `<input id="${id}" type="checkbox">`; // Goes left of the field name
     } else if (spec.type === 'layers') {
       control = `<input id="${id}" type="text" inputmode="numeric" placeholder="100 or 50, 50">`;
     } else {
@@ -233,16 +250,38 @@
     beside = beside ? textHtml(beside) : '';
     if (rangeHtml && beside && !lines.length) beside += ' ' + rangeHtml;
     else if (rangeHtml) lines.length ? (lines[lines.length - 1] += ' ' + rangeHtml) : lines.push(rangeHtml);
+    // Default removes the field from the YAML; Custom puts back its last value. fill() hides it when there's none
+    const choice = '<select class="rs-mp-choice" title="Default leaves this out of the YAML. Custom puts back your value." aria-label="Default or custom">'
+      + '<option value="default">Default</option><option value="custom">Custom</option></select>';
+    const name = `<label class="rs-mp-name" for="${id}">${escapeHtml(path[path.length - 1])}</label>`;
+    if (spec.type === 'bool') {
+      return `<div class="rs-mp-field" data-path="${path.join('.')}">
+  <div class="rs-mp-top rs-mp-top-check">${control}${name}${choice}</div>
+  <div class="rs-mp-after">${lines.map(line => `<div class="rs-mp-helptext">${line}</div>`).join('')}<div class="rs-mp-msg"></div></div>
+</div>`;
+    }
     return `<div class="rs-mp-field" data-path="${path.join('.')}">
-  <div class="rs-mp-top"><label class="rs-mp-name" for="${id}">${escapeHtml(path[path.length - 1])}</label>${beside ? ` <span class="rs-mp-brief">– ${beside}</span>` : ''}${NOTE_BESIDE_NAME.includes(path.join('.')) ? ' <span class="rs-mp-brief rs-mp-note-beside"></span>' : ''}</div>
-  <div class="rs-mp-row">${control}${mode}<button type="button" class="rs-mp-default" title="Remove from the YAML, so the default applies">Default</button></div>
+  <div class="rs-mp-top">${name}${beside ? ` <span class="rs-mp-brief">– ${beside}</span>` : ''}${NOTE_BESIDE_NAME.includes(path.join('.')) ? ' <span class="rs-mp-brief rs-mp-note-beside"></span>' : ''}</div>
+  <div class="rs-mp-row">${control}${mode}${choice}</div>
   <div class="rs-mp-after">${lines.map(line => `<div class="rs-mp-helptext">${line}</div>`).join('')}<div class="rs-mp-msg"></div></div>
 </div>`;
   }
 
+  // A section's [name, spec] pairs, with a field that applies only when a checkbox is checked moved right
+  // after that checkbox (the service's JSON lists fields alphabetically)
+  function ordered(fields) {
+    const parentOf = spec => Object.keys(spec.only_with || {}).find(other => (fields[other] || {}).type === 'bool');
+    const out = Object.entries(fields).filter(([, spec]) => !parentOf(spec));
+    Object.entries(fields).filter(([, spec]) => parentOf(spec)).forEach(entry => {
+      const at = out.findIndex(([name]) => name === parentOf(entry[1]));
+      out.splice(at + 1, 0, entry);
+    });
+    return out;
+  }
+
   // A grid of fields; prefixes such as ['split'] or ['hyperparameters', 'rfc'] name the fields' sections
   function gridHtml(prefixes) {
-    const fields = prefixes.flatMap(prefix => Object.entries(groupFields(prefix)).map(([name, spec]) => fieldHtml(prefix.concat(name), spec)
+    const fields = prefixes.flatMap(prefix => ordered(groupFields(prefix)).map(([name, spec]) => fieldHtml(prefix.concat(name), spec)
       + (spec.explain ? `<p class="rs-mp-explain">${textHtml(spec.explain)}</p>` : '')));
     return `<div class="rs-mp-grid">${fields.join('')}</div>`;
   }
@@ -325,9 +364,14 @@
       const value = !spec.search && sameValue(parsed.value, spec.default) ? undefined : parsed.value;
       if (writeValue(path, value)) fill();
     });
-    field.querySelector('.rs-mp-default').addEventListener('click', () => {
+    field.querySelector('.rs-mp-choice').addEventListener('change', e => {
       field.dataset.error = '';
-      if (writeValue(path, undefined)) fill();
+      if (e.target.value === 'default') {
+        if (writeValue(path, undefined)) fill();
+        return;
+      }
+      // Custom: the last value set (the toggle is hidden until there is one)
+      if (writeValue(path, lastCustom[field.dataset.path])) fill();
     });
     field.querySelectorAll('.rs-mp-mode button').forEach(button => button.addEventListener('click', () => {
       if (locked) return;
@@ -363,6 +407,18 @@
       setNote(obj ? '' : 'The YAML below isn\'t valid right now, so these fields show defaults.', !obj);
     }
 
+    // One of the two shows: Restore Custom after Restore Defaults cleared settings, else Restore Defaults
+    const restore = host.querySelector('.rs-mp-restore');
+    if (restore) {
+      restore.style.display = cleared ? 'none' : '';
+      restore.disabled = !hasSettings;
+    }
+    const restoreCustom = host.querySelector('.rs-mp-restore-custom');
+    if (restoreCustom) {
+      restoreCustom.style.display = cleared ? '' : 'none';
+      restoreCustom.disabled = locked;
+    }
+
     allFields().forEach(field => {
       const path = fieldPath(field);
       const fields = groupFields(path);
@@ -388,8 +444,14 @@
         b.disabled = locked;
       });
       field.classList.toggle('changed', set !== undefined);
-      // Shown only for a value set in the YAML; otherwise the input fills the column
-      field.querySelector('.rs-mp-default').style.display = set !== undefined ? '' : 'none';
+      if (set !== undefined) lastCustom[field.dataset.path] = set;
+      const choice = field.querySelector('.rs-mp-choice');
+      choice.value = set !== undefined ? 'custom' : 'default';
+      choice.disabled = locked;
+      // Hidden when there's no custom value different from the default, whether or not the YAML sets it
+      // (a searched field set to its default is Fixed, which its Search button undoes)
+      const custom = set !== undefined ? set : lastCustom[field.dataset.path];
+      choice.style.display = custom === undefined || sameValue(custom, spec.default) ? 'none' : '';
 
       // only_with: the field applies only when another field has certain values
       let inactiveReason = '';
@@ -424,7 +486,6 @@
       }
 
       control.disabled = locked || searched || !!inactiveReason;
-      field.querySelector('.rs-mp-default').disabled = locked;
       // A value the service rejected, or one typed out of range, else why the field is inactive
       const error = (paramError && paramError.field === field.dataset.path ? paramError.message : '') || field.dataset.error || '';
       field.classList.toggle('error', !!error);
@@ -453,6 +514,34 @@
     fill();
   }
 
+  // Restore Defaults: remove every setting, keeping them for Restore Custom
+  function restoreDefaults() {
+    const obj = readYaml();
+    const settings = settingsOf(obj || {});
+    if (SECTIONS.some(s => Object.keys(settings[s]).length)) cleared = settings;
+    resetAll();
+  }
+
+  // Restore Custom: put back the settings Restore Defaults removed (over any set since)
+  function restoreCustom() {
+    const el = pre();
+    const obj = readYaml();
+    if (!cleared || !el || !obj) return;
+    const settings = settingsOf(obj);
+    SHARED.forEach(s => Object.assign(settings[s], cleared[s]));
+    Object.entries(cleared.hyperparameters).forEach(([m, values]) => {
+      settings.hyperparameters[m] = Object.assign(settings.hyperparameters[m] || {}, values);
+    });
+    SECTIONS.forEach(s => {
+      if (Object.keys(settings[s]).length) obj[s] = settings[s]; else delete obj[s];
+    });
+    el.textContent = typeof convertToYAML === 'function' ? convertToYAML(obj) : jsyaml.dump(obj, { lineWidth: -1 });
+    if (typeof updateResetButtonVisibility === 'function') updateResetButtonVisibility();
+    cleared = null;
+    syncHashFromYaml();
+    fill();
+  }
+
   function addMenu() {
     if (typeof addPanelMenu !== 'function' || $('modelParamsMenuControl')) return;
     addPanelMenu({
@@ -466,7 +555,7 @@
       ],
       onAction: action => {
         if (action !== 'rsmp-reset') return false;
-        resetAll(); // Also allowed without the Team Passphrase, to clear settings a shared link brought in
+        restoreDefaults(); // Also allowed without the Team Passphrase, to clear settings a shared link brought in
         return true;
       },
     }).render();
@@ -493,7 +582,12 @@
         }
         host.innerHTML = '<h2>Common Parameters</h2><div class="rs-mp-menu"></div><p class="rs-mp-note"></p>'
           + '<p class="rs-mp-intro">Train/test split, search and feature importance, for all models. Each model\'s hyperparameters are under Parameters, in the Models panel.</p>'
-          + '<div class="rs-mp-body"></div>';
+          + '<div class="rs-mp-body"></div>'
+          + '<div class="rs-mp-actions"><button type="button" class="rs-mp-restore" title="Remove every model setting from the YAML, here and in each model\'s Parameters">Restore Defaults</button>'
+          + '<button type="button" class="rs-mp-restore rs-mp-restore-custom" title="Put back the settings Restore Defaults removed" style="display:none">Restore Custom</button></div>';
+        // Restore Defaults is also allowed without the Team Passphrase, to clear settings a shared link brought in
+        host.querySelector('.rs-mp-restore').addEventListener('click', restoreDefaults);
+        host.querySelector('.rs-mp-restore-custom').addEventListener('click', restoreCustom);
         host.style.display = '';
         addMenu();
         if (RSRunPanel.isLocked) locked = !!RSRunPanel.isLocked();
@@ -520,7 +614,10 @@
           new MutationObserver(fill).observe(el, { childList: true, characterData: true, subtree: true });
         }
         const editor = $('paramText');
-        if (editor) editor.addEventListener('input', syncHashFromYaml);
+        if (editor) editor.addEventListener('input', () => {
+          cleared = null; // As for a field's edit, in writeValue()
+          syncHashFromYaml();
+        });
       });
   }
 
