@@ -18,6 +18,7 @@ Linked from [ModelEarth/projects #63](https://github.com/ModelEarth/projects/iss
 | Run reports saved locally in `reports/{year}/run-{date-time}/` with a link after Run, pushed to GitHub when `GITHUB_REPORTS_TOKEN` is set, runs with no models | 2026-10-21 |
 | Preview / Active modes on Run Models, a 2-model limit in Active mode, each model's hyperparameters in its Details | 2026-10-21 |
 | Report charts (below): PNGs from `api/charts.py` for all 6 models, failed models and data warnings in each report's README.md, binary-safe push, `models: all` and comma lists read; deployed and checked on Cloud Run | 2026-10-26 |
+| Run IDs (below): `/run?stream=1` sends the run ID at once and keep-alive lines; `GET /run/<run_id>` for a dropped connection | 2026-10-26 |
 
 ## Report charts
 
@@ -49,14 +50,21 @@ On Cloud Run (revision realitystream-00023, deployed 2026-10-26), pushed to mode
 
 The PNGs reach GitHub intact. Locally, a test runs RBF's code path through the charts with a stand-in binary.
 
+## Run IDs for long runs
+
+Eye Blinks with all six models ([run-2026-10-26T05-54-58](https://model.earth/reports/2026/run-2026-10-26T05-54-58/)) finished on Cloud Run in 17.6 minutes (MLP's search 5 minutes a pass, RBF 2.5) and pushed its report, but the caller never got the reply: nothing was sent until the end, and the idle connection was dropped along the way.
+
+Now `POST /run?stream=1`, which the page sends, answers at once with the run ID and the report's name, sends a line every 15 seconds, then the result. The run stays inside the open request because Cloud Run bills by request: CPU is allocated only while one is open, so a run left in the background after an immediate reply would barely move. If the connection drops anyway, the page asks `GET /run/<run_id>` until the result is in. Each ask waits up to 25 seconds for it, so a request stays open and the run keeps its CPU. Tested locally 2026-10-26: the ID came at once, keep-alive lines every 15 seconds, and a run whose connection was closed after the first line was still collected by ID.
+
 ## Next
 
-1. **SVC `probability=True`** is deprecated in scikit-learn 1.9 and removed in 1.11; switch to `CalibratedClassifierCV(SVC(), ensemble=False)`.
-2. **Rotate the old Data Commons key.** It was hardcoded in the Colab export; the code now reads `DATACOMMONS_API_KEY`.
-3. **Worker proxy in cloudroot** (below): `POST /api/realitystream/run` forwarded to Cloud Run.
-4. **GPU service** `realitystream-gpu` with a `requirements-gpu.txt`, and timing against the CPU service.
-5. **`timeseries` section** in the canopy YAML: the file is missing in tree-canopy. Decide what it should do.
-6. **Data Commons two-column targets.**
+1. **Deploy the run IDs** (`./deploy/deploy-cloud-run.sh`) and try a long run from the page, such as Eye Blinks (All Six Models).
+2. **SVC `probability=True`** is deprecated in scikit-learn 1.9 and removed in 1.11; switch to `CalibratedClassifierCV(SVC(), ensemble=False)`.
+3. **Rotate the old Data Commons key.** It was hardcoded in the Colab export; the code now reads `DATACOMMONS_API_KEY`.
+4. **Worker proxy in cloudroot** (below): `POST /api/realitystream/run` forwarded to Cloud Run.
+5. **GPU service** `realitystream-gpu` with a `requirements-gpu.txt`, and timing against the CPU service.
+6. **`timeseries` section** in the canopy YAML: the file is missing in tree-canopy. Decide what it should do.
+7. **Data Commons two-column targets.**
 
 The Colab export still has issues `run_models.py` doesn't: its data-loading cell forces the eye-blinks parameters, five cells call a venv path on one developer's Mac, and the SMOTE cell imports cudf unconditionally.
 

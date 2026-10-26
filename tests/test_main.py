@@ -101,3 +101,45 @@ def test_browser_token_pushes_keyless_runs(monkeypatch):
     assert calls[0]["token_label"] == main.BROWSER_TOKEN_LABEL
     assert "X-GitHub-Token" in client.options("/run", headers={"Origin": "http://localhost:8887"}).headers[
         "Access-Control-Allow-Headers"]
+
+
+def test_streamed_run_sends_the_run_id_first_and_keeps_the_result(monkeypatch):
+    import json
+    import threading
+
+    client, _ = _client(monkeypatch)
+    monkeypatch.setattr(main, "KEEPALIVE_SECONDS", 0.05)
+    monkeypatch.setattr(main, "POLL_WAIT_SECONDS", 0.05)
+    release = threading.Event()
+    monkeypatch.setattr(rm, "run_pipeline", lambda path, **kw: release.wait(5) and {"folder": "t"})
+    resp = client.post("/run?stream=1", data=YAML, headers={"X-API-Key": PASSPHRASE}, buffered=False)
+    assert resp.status_code == 200 and resp.mimetype == "application/x-ndjson"
+    stream = resp.response
+    first = json.loads(next(stream))
+    assert first["status"] == "running" and first["report_name"].startswith("20")
+    run_id = first["run_id"]
+    # While it runs, GET /run/<run_id> answers 202, and the stream sends keep-alive lines
+    assert client.get(f"/run/{run_id}").status_code == 202
+    assert json.loads(next(stream)) == {"status": "running", "seconds": 0}
+    release.set()
+    lines = [json.loads(line) for line in stream if line.strip()]
+    last = lines[-1]
+    assert last["status"] == "success" and last["http_status"] == 200 and last["run_id"] == run_id
+    # The result stays available by ID, for a page whose connection dropped
+    later = client.get(f"/run/{run_id}")
+    assert later.status_code == 200 and later.get_json()["folder"] == "t"
+    assert client.get("/run/not-a-run").status_code == 404
+
+
+def test_unstreamed_run_and_errors_keep_their_status(monkeypatch):
+    client, _ = _client(monkeypatch)
+
+    def missing(path, **kw):
+        raise rm.MissingKey("GITHUB_REPORTS_TOKEN")
+    monkeypatch.setattr(rm, "run_pipeline", missing)
+    resp = client.post("/run", data=YAML, headers={"X-API-Key": PASSPHRASE})
+    assert resp.status_code == 400 and resp.get_json()["status"] == "missing_key" and resp.get_json()["run_id"]
+    import json
+    lines = client.post("/run?stream=1", data=YAML, headers={"X-API-Key": PASSPHRASE}).get_data(as_text=True)
+    last = json.loads(lines.strip().splitlines()[-1])
+    assert last["status"] == "missing_key" and last["http_status"] == 400

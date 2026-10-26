@@ -536,6 +536,58 @@ a.rs-btn-shape { display:inline-block; text-decoration:none; }
     if (!running) showOutput(lastRun);
   }
 
+  // POST /run?stream=1: the service answers at once with JSON lines (the run_id, a line every 15 seconds while it
+  // runs, then the result), so a long run's connection isn't dropped for being idle. If it drops anyway, the result
+  // comes from GET /run/<run_id>. A reply that isn't streamed (a rejected YAML, a limit, an older service) is one JSON.
+  // Returns {status, data}; onRunId(id) is called once the run has an ID.
+  const POLL_MS = 1000; // Between asks; each GET /run/<run_id> waits up to 25 seconds for the result
+  const POLL_LIMIT_MS = 65 * 60 * 1000; // The service's request timeout is an hour
+
+  async function postRun(url, init, onRunId) {
+    const resp = await fetch(url, init);
+    if (!(resp.headers.get('Content-Type') || '').includes('ndjson') || !resp.body) {
+      return { status: resp.status, data: await resp.json().catch(() => ({})) };
+    }
+    let runId = null, last = null;
+    try {
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let end;
+        while ((end = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, end).trim();
+          buffer = buffer.slice(end + 1);
+          if (!line) continue;
+          last = JSON.parse(line);
+          if (last.run_id && !runId) onRunId(runId = last.run_id);
+        }
+      }
+    } catch (e) {
+      // The connection dropped: the run goes on, so ask for its result below
+    }
+    if (last && last.status !== 'running') return { status: last.http_status || 200, data: last };
+    if (!runId) throw new Error('No run ID');
+    return pollRun(runId);
+  }
+
+  async function pollRun(runId) {
+    const until = Date.now() + POLL_LIMIT_MS;
+    while (Date.now() < until) {
+      await new Promise(resolve => setTimeout(resolve, POLL_MS));
+      try {
+        const resp = await fetch(apiBase() + 'run/' + runId, { cache: 'no-store' });
+        if (resp.status !== 202) return { status: resp.status, data: await resp.json().catch(() => ({})) };
+      } catch (e) {
+        // Not reachable for now; ask again
+      }
+    }
+    throw new Error('No result for run ' + runId);
+  }
+
   async function runModels() {
     if (mode !== 'active') return;
     const pre = document.querySelector('#paramText pre') || $('paramText');
@@ -551,7 +603,7 @@ a.rs-btn-shape { display:inline-block; text-decoration:none; }
       return;
     }
     const smote = (document.querySelector('#rsRunControls input[name="rs_smote"]:checked') || {}).value || '';
-    const url = apiBase() + 'run' + (smote ? '?smote=' + smote : '');
+    const url = apiBase() + 'run?stream=1' + (smote ? '&smote=' + smote : '');
     const headers = { 'Content-Type': 'text/yaml' };
     const key = keyInputEl();
     if (key && key.value.trim()) headers['X-API-Key'] = key.value.trim();
@@ -560,14 +612,16 @@ a.rs-btn-shape { display:inline-block; text-decoration:none; }
     button.disabled = true;
     running = true;
     const started = Date.now();
-    const timer = setInterval(() => setStatus(`Running… ${Math.round((Date.now() - started) / 1000)} s`), 1000);
+    let runLabel = '';
+    const timer = setInterval(() => setStatus(`Running… ${Math.round((Date.now() - started) / 1000)} s${runLabel}`), 1000);
     setStatus('Running…');
     lastRun = null; // View Output stays hidden until this run's report is generated
     showOutput(null);
     try {
       Object.assign(headers, githubHeader(await browserGithubToken()));
-      const resp = await fetch(url, { method: 'POST', headers, body: yaml });
-      const data = await resp.json().catch(() => ({}));
+      const { status, data } = await postRun(url, { method: 'POST', headers, body: yaml },
+        id => { runLabel = ` (run ${id.slice(0, 8)})`; });
+      const resp = { ok: status >= 200 && status < 300, status };
       const secs = Math.round((Date.now() - started) / 1000);
       if (resp.ok && data.status === 'success') {
         showResults(data);

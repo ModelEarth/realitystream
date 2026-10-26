@@ -10,10 +10,14 @@ RealityStream serverless API for Google Cloud Run: Flask wrapper around run_mode
                                header X-GitHub-Token checks a token saved in the browser (keys/#need=GITHUB_REPORTS_TOKEN) instead
     GET  /model-params         settings the YAML's split, search and hyperparameters sections may set
                                (api/model-params.yaml), for the Common Parameters panel and each model's fields
-    POST /run[?upload=1][&smote=0|1]
+    POST /run[?upload=1][&smote=0|1][&stream=1]
                                body = parameters.yaml text, or JSON {"parameters": "parameters-blinks.yaml"}
                                returns the run summary as JSON; smote=0 trains only without SMOTE,
-                               smote=1 only with SMOTE, omitted trains both
+                               smote=1 only with SMOTE, omitted trains both. stream=1 answers at once with
+                               JSON lines (application/x-ndjson): {"status": "running", "run_id", "report_name"},
+                               {"status": "running", "seconds"} every 15 seconds, then the summary with http_status
+    GET  /run/<run_id>         a run's summary once it's done (as /run returns it), waiting up to 25 seconds,
+                               else HTTP 202 with {"status": "running", "seconds"}; 404 for an unknown ID (kept 6 hours)
 
 Each run's report folder is named {year}/run-{date}T{time}. Run locally (not on Cloud Run), it's saved in
 the webroot's reports folder (REPORTS_DIR overrides), and `output_path` (for example
@@ -46,14 +50,17 @@ Local (from the realitystream folder):
 
 import hashlib
 import hmac
+import json
 import os
 import sys
 import tempfile
+import threading
 import time
+import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request
 
 REALITYSTREAM_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PARAMETERS_DIR = os.path.join(REALITYSTREAM_DIR, "parameters")
@@ -224,7 +231,9 @@ ENDPOINTS = {
     "POST /run": 'Body = parameters.yaml text, or JSON {"parameters": "parameters-blinks.yaml"}. '
                  'Add ?smote=0 to train only without SMOTE, ?smote=1 only with SMOTE (omit to train both), '
                  'Reports are pushed to GitHub when GITHUB_REPORTS_TOKEN is set (needs the key); ?upload=1 requires it. '
+                 '?stream=1 answers at once with JSON lines: the run_id, a line every 15 seconds, then the result. '
                  'Without header X-API-Key: 1 model, once per day.',
+    "GET /run/<run_id>": "A run's result once it's done (HTTP 202 while it runs)",
 }
 SOURCE_URL = "https://github.com/ModelEarth/realitystream/blob/main/api/main.py"
 
@@ -336,6 +345,7 @@ def run():
             return jsonify({"status": "error", "message": "Unknown parameters file", "available": preset_files()}), 400
         yaml_body = None
     else:
+        preset = None
         yaml_body = request.get_data(as_text=True)
         if not yaml_body.strip():
             return jsonify({"status": "error", "message": "Empty request body; send a parameters.yaml"}), 400
@@ -401,6 +411,66 @@ def run():
                         "message": f"Without the Team Passphrase, you can run 1 model once per day. {MORE_RUNS}"}), 429
     usage.count_run(count_as, today)
 
+    from run_models import report_name
+
+    name = report_name()
+    sent = browser_github_token()
+    # Pushed to GitHub when a token is available (upload=1 requires it). Keyless runs are pushed only
+    # with the browser's own token, not the service's.
+    push = True if upload else ("auto" if keyed or sent else False)
+    run_id = start_run(execute_run, yaml_body, preset, name, push, sent, smote, keyed, today)
+    job = _runs[run_id]
+    if request.args.get("stream", "").lower() not in ("1", "true"):
+        job["done"].wait()
+        payload, code = job["result"]
+        return jsonify(payload), code
+
+    def lines():
+        # The run ID first, so a caller whose connection drops can ask GET /run/<run_id> for the result
+        yield json.dumps({"status": "running", "run_id": run_id, "report_name": name}) + "\n"
+        while not job["done"].wait(KEEPALIVE_SECONDS):
+            yield json.dumps({"status": "running", "seconds": round(time.monotonic() - job["started"])}) + "\n"
+        payload, code = job["result"]
+        yield json.dumps({**payload, "http_status": code}) + "\n"
+
+    return Response(lines(), mimetype="application/x-ndjson", headers={"Cache-Control": "no-store"})
+
+
+# Runs by ID: {"started", "done" (threading.Event), "result" ((payload, HTTP status) once done)}.
+# Kept in memory for GET /run/<run_id>; --max-instances 1 sends every request to the same instance.
+RUNS_KEPT_SECONDS = 6 * 3600
+# A line sent this often while a streamed run works, so idle-connection timeouts on the way don't drop it.
+# The open request also keeps Cloud Run's CPU allocated (request-based billing) until the run ends.
+KEEPALIVE_SECONDS = 15
+# GET /run/<run_id> waits this long for the result before answering 202
+POLL_WAIT_SECONDS = 25
+_runs = {}
+_runs_lock = threading.Lock()
+
+
+def start_run(target, *args):
+    """Run target(*args) -> (payload, status) in a thread, under a new run ID, and return the ID."""
+    run_id = uuid.uuid4().hex
+    now = time.monotonic()
+    with _runs_lock:
+        for old in [k for k, v in _runs.items() if v["done"].is_set() and now - v["started"] > RUNS_KEPT_SECONDS]:
+            del _runs[old]
+        _runs[run_id] = {"started": now, "done": threading.Event(), "result": None}
+
+    def work():
+        try:
+            payload, code = target(*args)
+        except Exception as exc:
+            payload, code = {"status": "error", "message": str(exc)}, 500
+        _runs[run_id]["result"] = ({**payload, "run_id": run_id}, code)
+        _runs[run_id]["done"].set()
+
+    threading.Thread(target=work, daemon=True).start()
+    return run_id
+
+
+def execute_run(yaml_body, preset, name, push, sent, smote, keyed, today):
+    """One run, outside the request (so it can stream): returns (payload, HTTP status)."""
     with tempfile.TemporaryDirectory(prefix="realitystream_") as work:
         if yaml_body is None:
             yaml_path = os.path.join(PARAMETERS_DIR, preset)
@@ -410,21 +480,16 @@ def run():
                 fh.write(yaml_body)
         started = time.monotonic()
         try:
-            from run_models import MissingKey, report_name, run_pipeline
+            from run_models import MissingKey, run_pipeline
 
-            name = report_name()
             local = saves_locally()
             report_dir = os.path.join(REPORTS_DIR, *name.split("/")) if local else os.path.join(work, "report")
-            # Pushed to GitHub when a token is available (upload=1 requires it). Keyless runs are pushed only
-            # with the browser's own token, not the service's.
-            sent = browser_github_token()
-            push = True if upload else ("auto" if keyed or sent else False)
             try:
                 summary = run_pipeline(yaml_path, report_dir=report_dir, upload=push, smote=smote, name=name,
                                        token=sent or None,
                                        token_label=BROWSER_TOKEN_LABEL if sent else "GITHUB_REPORTS_TOKEN")
             except MissingKey as exc:
-                return jsonify({"status": "missing_key", "key": exc.name, "how_to_get_it": exc.how_to_get_it}), 400
+                return {"status": "missing_key", "key": exc.name, "how_to_get_it": exc.how_to_get_it}, 400
             summary.pop("report_dir", None)  # Not shown: on Cloud Run, a temporary folder removed after this request
             summary["report_name"] = name
             summary["output_path"] = None
@@ -435,11 +500,28 @@ def run():
                 summary["github"] = {"token": None, "pushed_to": None,
                                      "message": "Reports are pushed to GitHub only with the Team Passphrase "
                                                 "or a GITHUB_REPORTS_TOKEN saved in this browser."}
-            return jsonify({"status": "success", "keyed": keyed, **summary}), 200
+            return {"status": "success", "keyed": keyed, **summary}, 200
         except Exception as exc:
-            return jsonify({"status": "error", "message": str(exc)}), 500
+            return {"status": "error", "message": str(exc)}, 500
         finally:
             usage.add_time(time.monotonic() - started, today)
+
+
+@app.route("/run/<run_id>", methods=["GET"])
+def run_result(run_id):
+    """A run's result by its ID: the /run reply once it's done (waiting up to POLL_WAIT_SECONDS for it), else
+    {"status": "running", "seconds"} (HTTP 202)."""
+    job = _runs.get(run_id)
+    if job is None:
+        return jsonify({"status": "unknown", "run_id": run_id,
+                        "message": "No run has this ID. The service may have restarted; the run's report "
+                                   "is in GitHub if it was pushed."}), 404
+    # Waiting here keeps a request open, so Cloud Run keeps the run's CPU allocated between the page's asks
+    if not job["done"].wait(POLL_WAIT_SECONDS):
+        return jsonify({"status": "running", "run_id": run_id,
+                        "seconds": round(time.monotonic() - job["started"])}), 202
+    payload, code = job["result"]
+    return jsonify(payload), code
 
 
 if __name__ == "__main__":

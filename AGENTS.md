@@ -27,7 +27,9 @@ The front end only sends YAML (the text of `#paramText pre`) to `POST /run`. Any
 
 ## API (`api/main.py`)
 
-`GET /` (HTML for browsers, usage JSON otherwise), `GET /health`, `GET /key`, `GET /github-token` (whether GITHUB_REPORTS_TOKEN, or header X-GitHub-Token, can push, cached 5 minutes), `GET /parameters`, `GET /model-params`, and `POST /run[?upload=1][&smote=0|1]`.
+`GET /` (HTML for browsers, usage JSON otherwise), `GET /health`, `GET /key`, `GET /github-token` (whether GITHUB_REPORTS_TOKEN, or header X-GitHub-Token, can push, cached 5 minutes), `GET /parameters`, `GET /model-params`, `POST /run[?upload=1][&smote=0|1][&stream=1]` and `GET /run/<run_id>`.
+
+- Run IDs: with `stream=1` (the page sends it), `/run` answers at once with JSON lines: `{"status": "running", "run_id", "report_name"}`, a `{"status": "running", "seconds"}` line every 15 seconds, then the result with `http_status`. The open request keeps Cloud Run's CPU allocated (request-based billing) and the lines keep the connection from idling out. If it drops anyway, `GET /run/<run_id>` returns the result, waiting up to 25 seconds for it so a request stays open (HTTP 202 while running), kept 6 hours in the instance's memory, which `--max-instances 1` makes the only one. Without `stream`, `/run` returns one JSON reply as before.
 
 - Team Passphrase: header `X-API-Key` matching `REALITYSTREAM_API_KEY` (Secret Manager `realitystream-api-key`). With it: 20 runs a day, any models, uploads. Without it: 1 run a day of 1 model. The page's Active mode also limits a run to 2 models (`MODEL_LIMIT` in `js/run-panel.js`); the service doesn't.
 - Model settings: the YAML's `split`, `search` and `hyperparameters` sections, defined in `api/model-params.yaml` (served at `/model-params`). `run_models.validate_parameters` checks them, and `/run` returns HTTP 400 with `field` before the run is counted. Without the Team Passphrase, any of these sections gets HTTP 403 `key_needed`. A schema default for a field that isn't searched must match `make_model()`; a test checks this.
