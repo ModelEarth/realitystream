@@ -8,6 +8,8 @@
 
 Reports are automatically sent to GitHub for storage
 
+- [New England Bees (6 models)](https://model.earth/reports/2026/run-2026-10-26T05-07-12/)
+- [Blinks - Random Bits Forest (RBF)](https://model.earth/reports/2026/run-2026-10-26T05-01-35/)
 - [Eye Blink Detection - Feature Importance Analysis](https://akhilaguska27.github.io/reports/2025/eye-blinks-rbf-2025-10-30/)
 - [Eye Blink Detection - Model Winner: Random Bits Forest (rbf)](https://model.earth/reports/2025/eye-blinks-all-models-2025-11-06/)
 
