@@ -388,6 +388,9 @@ a.rs-btn-shape { display:inline-block; text-decoration:none; }
       + (rows.join('') || '<tr><td colspan="9">No models were trained.</td></tr>') + '</table></div>'
       // Data warnings, and models that failed with the reason (the report's README.md lists both)
       + (data.warnings || []).map(text => `<p class="rs-run-settings">Data: ${escapeHtml(text)}</p>`).join('')
+      // How each permutation Feature Importance chart was made, or why it wasn't
+      + Object.entries(data.importance || {}).map(([model, note]) =>
+        `<p class="rs-run-settings">Feature importance: ${escapeHtml(model)}. ${escapeHtml(note)}</p>`).join('')
       + Object.entries(data.errors || {}).map(([model, reason]) =>
         `<p class="rs-run-settings">Not trained: ${escapeHtml(model)}. ${escapeHtml(reason)}</p>`).join('');
     host.style.display = 'block';

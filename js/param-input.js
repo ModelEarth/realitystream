@@ -5,9 +5,9 @@ function rsDebugAlert(message) {
 // Global variables for parambase handling (declared early to avoid TDZ)
 let cachedParambaseContent = {};
 let currentParambase = null;
-// YAML keys that hash values can override. split, search and hyperparameters are the model settings
+// YAML keys that hash values can override. split, search, importance and hyperparameters are the model settings
 // (realitystream/js/model-params.js), for example #hyperparameters.rfc.n_estimators=200
-const RS_YAML_ROOTS = ["folder", "features", "targets", "models", "split", "search", "hyperparameters"];
+const RS_YAML_ROOTS = ["folder", "features", "targets", "models", "split", "search", "importance", "hyperparameters"];
 
 // Webroot this script was loaded from (it resides in realitystream/js/). Locally that's this site;
 // on pages hosted elsewhere, such as the RealityStream Cloud Run service, it's https://model.earth/.
@@ -2898,7 +2898,7 @@ function isMeaningfulChange(baseValue, currentValue) {
 // Function to find differences between base and current YAML
 function findYamlDifferences(baseYaml, currentYaml) {
     const differences = {};
-    // The model settings roots (split, search, hyperparameters) are left to model-params.js, which mirrors
+    // The model settings roots (split, search, importance, hyperparameters) are left to model-params.js, which mirrors
     // them in the hash field by field
     const modelHashParams = ["folder","features", "targets", "models"];
     

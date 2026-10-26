@@ -309,7 +309,7 @@ def test_validate_parameters_normalizes():
     assert settings["hyperparameters"]["mlp"] == {"hidden_layer_sizes": [64]}
     hashed = rm.validate_parameters({"hyperparameters": {"mlp": {"hidden_layer_sizes": ["50", "50"]}}})  # from a URL hash
     assert hashed["hyperparameters"]["mlp"] == {"hidden_layer_sizes": [50, 50]}
-    assert rm.validate_parameters({"models": ["lr"]}) == {"split": {}, "search": {}, "hyperparameters": {}}
+    assert rm.validate_parameters({"models": ["lr"]}) == {"split": {}, "search": {}, "importance": {}, "hyperparameters": {}}
 
 
 def test_validate_parameters_names_the_field():
@@ -326,6 +326,7 @@ def test_validate_parameters_names_the_field():
         ({"hyperparameters": {"lr": {"l1_ratio": 0.3}}}, "hyperparameters.lr.l1_ratio"),  # needs elasticnet
         ({"hyperparameters": {"svm": {"degree": 4}}}, "hyperparameters.svm.degree"),       # needs poly
         ({"hyperparameters": {"mlp": {"hidden_layer_sizes": [10, 10, 10, 10]}}}, "hyperparameters.mlp.hidden_layer_sizes"),
+        ({"hyperparameters": {"rbf": {"feature_importance": 1}}}, "hyperparameters.rbf.feature_importance"),
     ]
     for params, field in cases:
         with pytest.raises(rm.ParameterError) as err:
@@ -537,10 +538,20 @@ def test_rbf_runs_once_per_pass_and_reaches_the_charts(tmp_path, monkeypatch):
     results = rm.train_models(X[:90], y[:90], X[90:], y[90:], ["rbf"])
     assert [r["model_type"] for r in results] == ["rbf"] and results[0]["roc_auc"] is not None
     assert calls.read_text().count("run") == 1  # predict() reused predict_proba()'s run
+    # Feature importance is optional for rbf, since it trains it once more
+    assert "rbf" not in rm.feature_importances(results, list(X.columns), X_test=X[90:], y_test=y[90:])
+    assert calls.read_text().count("run") == 1
+    hyper = rm.validate_parameters({"hyperparameters": {"rbf": {"feature_importance": "true"}}})["hyperparameters"]
+    results = rm.train_models(X[:90], y[:90], X[90:], y[90:], ["rbf"], hyperparameters=hyper)
+    assert results[0]["params_used"]["feature_importance"] is True
+    # Permutation importance stacks every shuffled copy into one more run, and finds the column it scores by
+    importances = rm.feature_importances(results, list(X.columns), X_test=X[90:], y_test=y[90:])
+    assert calls.read_text().count("run") == 3
+    assert importances["rbf"].attrs["method"] == "permutation" and importances["rbf"]["Feature"][0].startswith(X.columns[0])
     from charts import write_charts
-    written = write_charts(str(tmp_path), results, y[90:], rm.feature_importances(results, list(X.columns)))
+    written = write_charts(str(tmp_path), results, y[90:], importances)
     assert written == ["metrics_dashboard.png", "roc_curves_comparison.png", "confusion_matrices.png",
-                       "training_time_comparison.png"]
+                       "training_time_comparison.png", "feature_importance_rbf.png"]
 
 
 def test_upload_reports_sends_images_as_base64_blobs(tmp_path, monkeypatch):
@@ -616,3 +627,42 @@ def test_push_report_view_url(monkeypatch, tmp_path):
     assert pushed == "2026/run-x" and github["view_url"] == "https://model.earth/reports/2026/run-x/"
     assert github["repo"] == "modelearth/reports"
     assert github["message"].index("View at https://model.earth/reports/2026/run-x/") < github["message"].index("Pushed to")
+
+
+def test_wide_data_importance_options(monkeypatch):
+    """Over PERMUTATION_FEATURES, svm's permutation chart is skipped unless prescreen or time_budget is set."""
+    rng = np.random.default_rng(1)
+    X = pd.DataFrame(rng.normal(size=(120, 250)), columns=[f"f{i}" for i in range(250)])
+    y = pd.Series((X["f7"] + rng.normal(scale=0.3, size=120) > 0).astype(int))
+    results = rm.train_models(X[:90], y[:90], X[90:], y[90:], ["svm"])
+
+    def run(options):
+        notes = {}
+        imp = rm.feature_importances(results, list(X.columns), map_naics=False, X_test=X[90:], y_test=y[90:],
+                                     X_train=X[:90], y_train=y[:90], options=options, notes=notes)
+        return imp, notes.get("svm", "")
+
+    imp, note = run(None)
+    assert "svm" not in imp and "Not drawn: 250 features" in note
+    imp, note = run({"prescreen": True})
+    assert len(imp["svm"]) == 200 and imp["svm"]["Feature"][0] == "f7" and "Shuffled the 200 of 250" in note
+    imp, note = run({"time_budget": True, "budget_seconds": 600})
+    assert len(imp["svm"]) == 250 and note.startswith("All 250 features shuffled")
+    # Over the budget: skipped, or prescreened when that's checked too
+    monkeypatch.setattr(rm, "PERMUTATION_BATCH", 8)
+    imp, note = run({"time_budget": True, "budget_seconds": 1e-9})
+    assert "svm" not in imp and "over the 1e-09 s budget" in note and "check prescreen)" in note
+    imp, note = run({"time_budget": True, "budget_seconds": 1e-9, "prescreen": True})
+    assert len(imp["svm"]) == 200 and "over the" in note and "Shuffled the 200" in note
+    readme = rm.report_readme({"folder": "t", "models": ["svm"]}, results, [], importance={"svm": note})
+    assert "Feature importance:" in readme and "Support Vector Machine: Shuffling all 250" in readme
+
+
+def test_importance_settings_validate():
+    import pytest
+
+    checked = rm.validate_parameters({"importance": {"prescreen": "true", "time_budget": True, "budget_seconds": 30}})
+    assert checked["importance"] == {"prescreen": True, "time_budget": True, "budget_seconds": 30}
+    with pytest.raises(rm.ParameterError) as err:
+        rm.validate_parameters({"importance": {"budget_seconds": 30}})
+    assert err.value.field == "importance.budget_seconds" and "time_budget is true (time_budget is false)" in str(err.value)

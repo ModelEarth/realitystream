@@ -8,7 +8,7 @@ RealityStream serverless API for Google Cloud Run: Flask wrapper around run_mode
     GET  /parameters           preset YAML files in parameters/
     GET  /github-token         whether GITHUB_REPORTS_TOKEN can push to modelearth/reports (asked of GitHub, cached 5 minutes);
                                header X-GitHub-Token checks a token saved in the browser (keys/#need=GITHUB_REPORTS_TOKEN) instead
-    GET  /model-params         settings the YAML's split, search and hyperparameters sections may set
+    GET  /model-params         settings the YAML's split, search, importance and hyperparameters sections may set
                                (api/model-params.yaml), for the Common Parameters panel and each model's fields
     POST /run[?upload=1][&smote=0|1][&stream=1]
                                body = parameters.yaml text, or JSON {"parameters": "parameters-blinks.yaml"}
@@ -227,7 +227,7 @@ ENDPOINTS = {
     "GET /key": "Whether header X-API-Key is valid",
     "GET /parameters": "Preset YAML files in parameters/",
     "GET /github-token": "Whether GITHUB_REPORTS_TOKEN (or header X-GitHub-Token) can push to modelearth/reports",
-    "GET /model-params": "Settings the YAML's split, search and hyperparameters sections may set",
+    "GET /model-params": "Settings the YAML's split, search, importance and hyperparameters sections may set",
     "POST /run": 'Body = parameters.yaml text, or JSON {"parameters": "parameters-blinks.yaml"}. '
                  'Add ?smote=0 to train only without SMOTE, ?smote=1 only with SMOTE (omit to train both), '
                  'Reports are pushed to GitHub when GITHUB_REPORTS_TOKEN is set (needs the key); ?upload=1 requires it. '

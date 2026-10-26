@@ -1,9 +1,9 @@
-# Model settings that a parameters.yaml may set in its split, search and hyperparameters sections.
+# Model settings that a parameters.yaml may set in its split, search, importance and hyperparameters sections.
 # api/run_models.py validates against this file (validate_parameters), GET /model-params serves it,
 # and the fields on realitystream/models/ (the Common Parameters panel and each model's details) are built from it.
 #
 # Each field:
-#   type        int, float, choice, or layers (a list of 1 to 3 layer sizes)
+#   type        int, float, choice, layers (a list of 1 to 3 layer sizes), or bool (a checkbox)
 #   default     the value used when the YAML leaves the field out. For fields that aren't searched,
 #               it must match make_model() in run_models.py (tests/test_run_models.py checks).
 #   min, max    inclusive range for int, float and each layer size
@@ -44,6 +44,31 @@ search:
     min: 1
     max: 50
     help: Settings RandomizedSearchCV tries for XGBoost and MLP, each with 5-fold cross-validation.
+
+# SVM and MLP (and RBF with feature_importance) get their Feature Importance charts by shuffling each feature
+# 5 times on up to 1,000 test rows. Data with more than 200 features is skipped unless one of these is checked.
+# For scale, bees MN (10,260 features) took 69 s for MLP and 145 s for SVM on an 18-core Mac, so expect about
+# 5 and 11 minutes on Cloud Run's 4 vCPUs.
+importance:
+  prescreen:
+    type: bool
+    default: false
+    help: For more than 200 features, shuffle only the 200 that track the target most closely.
+    after: Ranked by an ANOVA F-test on the training rows. Takes a few seconds.
+  time_budget:
+    type: bool
+    default: false
+    help: For more than 200 features, shuffle every one when that fits within budget_seconds.
+    after: The first 64 features are timed to project the rest; if over, prescreen is used when checked.
+  budget_seconds:
+    type: int
+    default: 60
+    min: 10
+    max: 600
+    step: 10
+    only_with:
+      time_budget: [true]
+    help: Seconds each model may spend shuffling every feature.
 
 hyperparameters:
   rfc:
@@ -246,3 +271,11 @@ hyperparameters:
       max: 1000
       step: 10
       help: Number of random bits trees.
+    # Extra time: the binary trains again on every prediction, so the chart costs one more training on the
+    # stacked shuffled rows. On Cloud Run that's about 2.5 more minutes for Eye Blinks (14,980 rows, a pass
+    # takes about 2.5 minutes), and a few seconds for small data such as the New England bees (59 rows).
+    feature_importance:
+      type: bool
+      default: false
+      help: Draw a Feature Importance chart, by permutation.
+      after: About doubles RBF's time, since it trains once more (about 2.5 more minutes for Eye Blinks).

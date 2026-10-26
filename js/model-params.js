@@ -1,4 +1,4 @@
-// Common Parameters panel for RealityStream pages: the YAML's split, search and hyperparameters sections.
+// Common Parameters panel for RealityStream pages: the YAML's split, search, importance and hyperparameters sections.
 // Used by realitystream/models/ and the Cloud Run home page (realitystream/api/home.html).
 //
 // The fields come from the API's GET /model-params (api/model-params.yaml), the file the API validates
@@ -10,7 +10,8 @@
 // keeps it. Only values that differ from the defaults are written, and "Default" removes one again.
 // Editing the YAML by hand updates the fields.
 //
-// Settings shared by more than one model (split, and search for xgboost and mlp) stay in the panel. Each
+// Settings shared by more than one model (split, search for xgboost and mlp, and importance for the
+// permutation charts) stay in the panel. Each
 // model's hyperparameters go in that model's details in the Models panel (model-select.js's
 // .rs-model-params slot, shown by the "N Parameters" button after its description).
 //
@@ -22,7 +23,8 @@
 
 (function () {
   const $ = id => document.getElementById(id);
-  const SECTIONS = ['split', 'search', 'hyperparameters'];
+  const SECTIONS = ['split', 'search', 'importance', 'hyperparameters'];
+  const SHARED = ['split', 'search', 'importance']; // Sections in this panel
   const ALIASES = { logisticregression: 'lr', randomforest: 'rfc', randombitsforest: 'rbf', xgb: 'xgboost' };
   // Form layout: fields whose help begins beside the field name, after a dash. The first sentence of the help
   // goes there and the rest stays below the input, with either the service's help text or a newer one.
@@ -58,6 +60,7 @@
 .rs-mp-note { margin:0 0 12px; opacity:.85; }
 .rs-mp-note.warn { opacity:1; color:#c2410c; } .dark .rs-mp-note.warn { color:#fb923c; }
 .rs-mp-intro { margin:0 0 12px; opacity:.85; }
+.rs-mp-subhead { margin:18px 0 6px; font-size:15px; }
 /* 8px more between a model's bullets and its fields */
 .rs-model-params { margin:10px 0 4px; padding-top:8px; }
 /* At most 2 columns (each at least half the width less the gap), 1 when narrower than 2 × 210px */
@@ -75,6 +78,7 @@
 .rs-mp-row input, .rs-mp-row select { flex:1; min-width:0; padding:6px 8px; border-radius:8px; border:1px solid rgba(127,127,127,.4);
   background:transparent; color:inherit; font:inherit; font-size:14px; }
 .dark .rs-mp-row select option { background:#1d2128; }
+.rs-mp-row input[type="checkbox"] { flex:none; width:18px; height:18px; margin:5px 0; padding:0; }
 .rs-mp-row input:disabled, .rs-mp-row select:disabled { opacity:.55; }
 .rs-mp-field.changed .rs-mp-row input, .rs-mp-field.changed .rs-mp-row select { border-color:#2f6fde; }
 .rs-mp-field.error .rs-mp-row input, .rs-mp-field.error .rs-mp-row select { border-color:#c2410c; }
@@ -119,8 +123,8 @@
 
   // The YAML's split, search and hyperparameters, with model aliases (xgb) turned into keys
   function settingsOf(obj) {
-    const out = { split: {}, search: {}, hyperparameters: {} };
-    ['split', 'search'].forEach(s => { if (obj && obj[s] && typeof obj[s] === 'object') Object.assign(out[s], obj[s]); });
+    const out = { split: {}, search: {}, importance: {}, hyperparameters: {} };
+    SHARED.forEach(s => { if (obj && obj[s] && typeof obj[s] === 'object') Object.assign(out[s], obj[s]); });
     const hyper = obj && obj.hyperparameters;
     if (hyper && typeof hyper === 'object') {
       Object.entries(hyper).forEach(([model, values]) => {
@@ -175,7 +179,7 @@
     const remove = Object.keys(getHash()).filter(k => SECTIONS.includes(k.split('.')[0]));
     const add = {};
     const settings = settingsOf(obj);
-    ['split', 'search'].forEach(s => Object.entries(settings[s]).forEach(([k, v]) => { add[`${s}.${k}`] = v; }));
+    SHARED.forEach(s => Object.entries(settings[s]).forEach(([k, v]) => { add[`${s}.${k}`] = v; }));
     Object.entries(settings.hyperparameters).forEach(([m, values]) =>
       Object.entries(values).forEach(([k, v]) => { add[`hyperparameters.${m}.${k}`] = Array.isArray(v) ? v.join(',') : v; }));
     goHashQuiet(add, remove.filter(k => !(k in add)));
@@ -193,7 +197,7 @@
   }
 
   function rangeText(spec) {
-    if (spec.type === 'choice') return '';
+    if (spec.type === 'choice' || spec.type === 'bool') return '';
     if (spec.type === 'layers') return `1 to 3 layers of ${spec.min} to ${spec.max}`;
     return `${spec.min} to ${spec.max}`;
   }
@@ -203,6 +207,8 @@
     let control;
     if (spec.type === 'choice') {
       control = `<select id="${id}">` + spec.options.map(o => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join('') + '</select>';
+    } else if (spec.type === 'bool') {
+      control = `<input id="${id}" type="checkbox">`;
     } else if (spec.type === 'layers') {
       control = `<input id="${id}" type="text" inputmode="numeric" placeholder="100 or 50, 50">`;
     } else {
@@ -247,7 +253,10 @@
     if (!host || !schema) return;
     const body = host.querySelector('.rs-mp-body');
     if (!body.querySelector('.rs-mp-field')) {
-      body.innerHTML = gridHtml([['split'], ['search']]);
+      body.innerHTML = gridHtml([['split'], ['search']])
+        + '<h3 class="rs-mp-subhead">Feature importance</h3>'
+        + '<p class="rs-mp-intro">SVM and MLP (and RBF, when checked in its Parameters) shuffle each feature to chart its importance. Data with more than 200 features is skipped unless one of these is checked.</p>'
+        + gridHtml([['importance']]);
       body.querySelectorAll('.rs-mp-field').forEach(bindField);
     }
     document.querySelectorAll('.rs-model-params[data-model]').forEach(slot => {
@@ -269,8 +278,14 @@
     return field.querySelector('input, select');
   }
 
+  // A checkbox's state, else the input's text
+  function controlValue(control) {
+    return control.type === 'checkbox' ? control.checked : control.value;
+  }
+
   // Parse and range-check a control's text; returns {value} or {error}
   function parseControl(spec, text) {
+    if (spec.type === 'bool') return { value: text === true || text === 'true' };
     text = String(text).trim();
     if (spec.type === 'choice') return { value: text };
     if (spec.type === 'layers') {
@@ -299,7 +314,7 @@
     const spec = groupFields(path)[path[path.length - 1]];
     const control = controlOf(field);
     control.addEventListener('change', () => {
-      const parsed = parseControl(spec, control.value);
+      const parsed = parseControl(spec, controlValue(control));
       field.dataset.error = parsed.error || '';
       if (paramError && paramError.field === field.dataset.path) paramError = null;
       if (parsed.error) {
@@ -319,7 +334,7 @@
       if (button.dataset.mode === 'search') {
         if (writeValue(path, undefined)) fill();
       } else {
-        const parsed = parseControl(spec, control.value);
+        const parsed = parseControl(spec, controlValue(control));
         if (writeValue(path, parsed.error ? spec.default : parsed.value)) fill();
       }
     }));
@@ -361,7 +376,9 @@
         return v === undefined ? fields[other].default : v;
       };
 
-      if (document.activeElement !== control) {
+      if (control.type === 'checkbox') {
+        control.checked = value === true || value === 'true';
+      } else if (document.activeElement !== control) {
         control.value = Array.isArray(value) ? value.join(', ') : value;
       }
       const searched = !!spec.search && set === undefined;
@@ -475,7 +492,7 @@
           document.head.appendChild(style);
         }
         host.innerHTML = '<h2>Common Parameters</h2><div class="rs-mp-menu"></div><p class="rs-mp-note"></p>'
-          + '<p class="rs-mp-intro">Train/test split and search, for all models. Each model\'s hyperparameters are under Parameters, in the Models panel.</p>'
+          + '<p class="rs-mp-intro">Train/test split, search and feature importance, for all models. Each model\'s hyperparameters are under Parameters, in the Models panel.</p>'
           + '<div class="rs-mp-body"></div>';
         host.style.display = '';
         addMenu();

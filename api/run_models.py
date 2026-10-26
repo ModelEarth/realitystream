@@ -228,7 +228,7 @@ class DictToObject:
 # ---------------------------------------------------------------------------
 
 MODEL_PARAMS_PATH = os.path.join(HERE, "model-params.yaml")
-SETTINGS_SECTIONS = ("split", "search", "hyperparameters")
+SETTINGS_SECTIONS = ("split", "search", "importance", "hyperparameters")
 _MODEL_PARAMS = None
 
 
@@ -252,6 +252,12 @@ class ParameterError(ValueError):
 def _check_value(field, spec, value):
     """One YAML value checked against its model-params.yaml spec; returns it normalized."""
     kind = spec["type"]
+    if kind == "bool":
+        if isinstance(value, str) and value.strip().lower() in ("true", "false"):  # From the URL hash
+            value = value.strip().lower() == "true"
+        if not isinstance(value, bool):
+            raise ParameterError(field, f"must be true or false, not {value}")
+        return value
     if kind == "choice":
         if value is None and "none" in spec["options"]:
             value = "none"
@@ -285,6 +291,10 @@ def _check_value(field, spec, value):
     return value
 
 
+def _yaml_text(value):
+    return str(value).lower() if isinstance(value, bool) else str(value)
+
+
 def _check_fields(prefix, fields, values):
     """Check one section's {field: value} mapping, including the only_with and valid_with rules."""
     if not isinstance(values, dict):
@@ -301,8 +311,9 @@ def _check_fields(prefix, fields, values):
     for name in checked:
         for other, allowed in (fields[name].get("only_with") or {}).items():
             if effective(other) not in allowed:
-                raise ParameterError(f"{prefix}.{name}", f"applies only when {other} is {' or '.join(allowed)} "
-                                                         f"({other} is {effective(other)})")
+                raise ParameterError(f"{prefix}.{name}", f"applies only when {other} is "
+                                                         f"{' or '.join(map(_yaml_text, allowed))} "
+                                                         f"({other} is {_yaml_text(effective(other))})")
     for name, spec in fields.items():
         for other, table in (spec.get("valid_with") or {}).items():
             allowed = table.get(effective(other))
@@ -313,15 +324,15 @@ def _check_fields(prefix, fields, values):
 
 
 def validate_parameters(params):
-    """Check the YAML's split, search and hyperparameters sections against model-params.yaml.
+    """Check the YAML's split, search, importance and hyperparameters sections against model-params.yaml.
 
-    Returns {"split": {...}, "search": {...}, "hyperparameters": {model_key: {...}}} holding only the values
+    Returns {"split": {...}, "search": {...}, "importance": {...}, "hyperparameters": {model_key: {...}}} holding only the values
     the YAML sets, normalized (model aliases become keys). Raises ParameterError naming the field.
     Hyperparameters for models the YAML doesn't run are checked too, then ignored by training.
     """
     schema = model_params_schema()
-    settings = {"split": {}, "search": {}, "hyperparameters": {}}
-    for section in ("split", "search"):
+    settings = {"split": {}, "search": {}, "importance": {}, "hyperparameters": {}}
+    for section in ("split", "search", "importance"):
         if params.get(section) is not None:
             settings[section] = _check_fields(section, schema[section], params[section])
     hyper = params.get("hyperparameters")
@@ -669,8 +680,9 @@ from sklearn.preprocessing import LabelEncoder  # noqa: E402
 class RandomBitsForest(BaseEstimator, ClassifierMixin):
     """scikit-learn wrapper for the RBF binary (https://sourceforge.net/projects/random-bits-forest/)."""
 
-    def __init__(self, number_of_trees=200, bin_path=None):
+    def __init__(self, number_of_trees=200, feature_importance=False, bin_path=None):
         self.number_of_trees = number_of_trees
+        self.feature_importance = feature_importance  # Read by feature_importances(): one more training
         self.bin_path = bin_path
 
     def fit(self, X, y):
@@ -967,18 +979,26 @@ def naics_name(feature):
     return f"{prefix}-{code}-{name}" + (f"-{year}" if year else "")
 
 
-PERMUTATION_MODELS = ("svm", "mlp")  # No built-in importances. rbf retrains on each prediction, so it's left out
+PERMUTATION_MODELS = ("svm", "mlp", "rbf")  # No built-in importances; rbf only with feature_importance: true
 PERMUTATION_ROWS = 1000  # Test rows shuffled for permutation importance
-PERMUTATION_FEATURES = 200  # Wider data is skipped: each feature is scored 5 times
+PERMUTATION_FEATURES = 200  # Wider data is skipped, unless the YAML's importance section says otherwise
+PERMUTATION_REPEATS = 5
+PERMUTATION_BATCH = 64  # Features shuffled between checks of the time budget
+RBF_PERMUTATION_ROWS = 100_000  # rbf trains again on each call, so all its shuffled copies go in one call this size
 
 
-def feature_importances(results, feature_names, map_naics=True, X_test=None, y_test=None):
-    """{model_key: DataFrame(Feature, Importance)} for models that expose importances, plus svm and mlp by
-    permutation on the test rows when X_test and y_test are given (DataFrame.attrs["method"] is "permutation")."""
+def feature_importances(results, feature_names, map_naics=True, X_test=None, y_test=None, X_train=None,
+                        y_train=None, options=None, notes=None):
+    """{model_key: DataFrame(Feature, Importance)} for models that expose importances, plus svm, mlp and rbf by
+    permutation on the test rows when X_test and y_test are given (DataFrame.attrs["method"] is "permutation";
+    rbf only when its feature_importance hyperparameter is true).
+    options: the YAML's importance section (prescreen, time_budget, budget_seconds) for data wider than
+    PERMUTATION_FEATURES. notes, a dict, gets {model_key: how its permutation chart was made, or why it wasn't}."""
     out = {}
+    ranked = None  # Feature positions by prescreen_order(), computed when first needed
     for r in results:
         key, model = r["model_type"], r["best_model"]
-        method = ""
+        method = note = ""
         if key == "xgboost":
             scores = model.get_booster().get_score(importance_type="weight")
             values = [scores.get(f, scores.get(f"f{i}", 0)) for i, f in enumerate(feature_names)]
@@ -986,43 +1006,150 @@ def feature_importances(results, feature_names, map_naics=True, X_test=None, y_t
             values = np.asarray(to_cpu(model.feature_importances_)).ravel()
         elif key == "lr" and hasattr(model, "coef_"):
             values = np.abs(np.asarray(to_cpu(model.coef_))).ravel()
+        elif key == "rbf" and not getattr(model, "feature_importance", False):
+            continue  # Optional, since it trains RBF once more
         elif key in PERMUTATION_MODELS and X_test is not None and r.get("predictor") is not None:
-            values = _permutation_values(r["predictor"], X_test, y_test)
+            if ranked is None and (options or {}).get("prescreen") and X_test.shape[1] > PERMUTATION_FEATURES:
+                screen = (X_train, y_train) if X_train is not None else (X_test, y_test)
+                ranked = prescreen_order(*screen)
+            values, note = _permutation_values(r["predictor"], X_test, y_test, one_call=key == "rbf",
+                                               options=options, ranked=ranked)
+            if notes is not None and note:
+                notes[key] = note
             if values is None:
                 continue
             method = "permutation"
         else:
             continue
-        df = pd.DataFrame({"Feature": list(feature_names), "Importance": values})
+        df = pd.DataFrame({"Feature": list(feature_names), "Importance": values}).dropna()  # NaN: not shuffled
         if map_naics:
             df["Feature"] = df["Feature"].map(naics_name)
         df = df.sort_values("Importance", ascending=False).reset_index(drop=True)
         df.attrs["method"] = method
+        df.attrs["note"] = note
         out[key] = df
     return out
 
 
-def _permutation_values(predictor, X_test, y_test):
-    """Mean drop in ROC-AUC (accuracy for more than two classes) when each feature is shuffled, or None."""
-    from sklearn.inspection import permutation_importance
+def prescreen_order(X, y):
+    """Feature positions, those that track the target most closely first (ANOVA F on these rows)."""
+    from sklearn.feature_selection import f_classif
 
-    if X_test.shape[1] > PERMUTATION_FEATURES:
-        print(f"  [INFO] No permutation importance for {X_test.shape[1]} features (limit {PERMUTATION_FEATURES})")
-        return None
-    X = X_test.fillna(0)  # Same imputation as train_models
-    y = np.asarray(y_test).ravel()
-    if len(X) > PERMUTATION_ROWS:
-        rows = np.random.default_rng(RANDOM_STATE).choice(len(X), PERMUTATION_ROWS, replace=False)
-        X, y = X.iloc[rows], y[rows]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        F = f_classif(X.fillna(0), np.asarray(y).ravel())[0]
+    return list(np.argsort(-np.nan_to_num(F, nan=0.0, posinf=np.finfo(float).max), kind="stable"))
+
+
+def _permutation_values(predictor, X_test, y_test, one_call=False, options=None, ranked=None):
+    """Mean drop in ROC-AUC (accuracy for more than two classes) when each feature is shuffled, with NaN for
+    features left unshuffled, and a note for the README ("" when every feature was shuffled as usual).
+    Returns (None, note) when skipped. one_call scores every shuffled copy from a single predict_proba call
+    (for rbf). Data wider than PERMUTATION_FEATURES is skipped unless options (the YAML's importance
+    section) sets time_budget (shuffle every feature if that fits in budget_seconds) or prescreen (shuffle
+    the PERMUTATION_FEATURES ranked first, positions best first); with both, the budget is tried first."""
+    options = options or {}
+    n = X_test.shape[1]
+    columns, note = list(range(n)), ""
+    X, y = X_test.fillna(0), np.asarray(y_test).ravel()  # Same imputation as train_models
     if len(np.unique(y)) < 2:
-        return None
+        return None, ""
     scoring = "roc_auc" if len(np.unique(y)) == 2 else "accuracy"
     try:
-        return permutation_importance(predictor, X, y, scoring=scoring, n_repeats=5, random_state=RANDOM_STATE,
-                                      n_jobs=-1).importances_mean
+        if n > PERMUTATION_FEATURES:
+            budget = options.get("budget_seconds", 60) if options.get("time_budget") else 0
+            if budget and not one_call:
+                Xs, ys = _sample_rows(X, y, PERMUTATION_ROWS)
+                started = time.monotonic()
+                values = _shuffle_scores(predictor, Xs, ys, scoring, columns, budget=budget)
+                if values is not None:
+                    return values, f"All {n:,} features shuffled in {time.monotonic() - started:.0f} s (budget {budget} s)."
+                note = f"Shuffling all {n:,} features would take over the {budget} s budget."
+            elif budget:
+                note = "The time budget doesn't apply to RBF, which shuffles every feature in one call."
+            if options.get("prescreen") and ranked is not None:
+                columns = sorted(ranked[:PERMUTATION_FEATURES])
+                note = (note + " " if note else "") + (f"Shuffled the {PERMUTATION_FEATURES} of {n:,} features "
+                                                       "that track the target most closely in the training rows.")
+            else:
+                hint = "check prescreen or time_budget under Feature importance" if not note else "check prescreen"
+                print(f"  [INFO] No permutation importance for {n} features (limit {PERMUTATION_FEATURES})")
+                return None, (note + " " if note else "") + (f"Not drawn: {n:,} features is over the "
+                                                             f"{PERMUTATION_FEATURES}-feature limit ({hint}).")
+        limit = PERMUTATION_ROWS
+        if one_call:
+            limit = max(100, min(limit, RBF_PERMUTATION_ROWS // (len(columns) * PERMUTATION_REPEATS + 1)))
+        X, y = _sample_rows(X, y, limit)
+        if len(np.unique(y)) < 2:
+            return None, note
+        if one_call:
+            scores = _one_call_permutation(predictor, X.to_numpy(float), y, columns)
+        else:
+            scores = _shuffle_scores(predictor, X, y, scoring, columns)
+        values = np.full(n, np.nan)
+        values[columns] = scores
+        return values, note
     except Exception as exc:
         print(f"  [WARN] Permutation importance failed: {exc}")
-        return None
+        return None, f"Permutation importance failed: {exc}"
+
+
+def _sample_rows(X, y, limit):
+    if len(X) <= limit:
+        return X, y
+    rows = np.random.default_rng(RANDOM_STATE).choice(len(X), limit, replace=False)
+    return X.iloc[rows], y[rows]
+
+
+def _shuffle_scores(predictor, X, y, scoring, columns, budget=None):
+    """Mean drop in score for each column position shuffled, in parallel. With budget (seconds), returns None
+    as soon as the time so far says all the columns would take longer."""
+    from joblib import Parallel, delayed
+    from sklearn.metrics import check_scoring
+
+    scorer = check_scoring(predictor, scoring=scoring)
+    base = scorer(predictor, X, y)
+    started, out = time.monotonic(), []
+    with Parallel(n_jobs=-1) as parallel:
+        for i in range(0, len(columns), PERMUTATION_BATCH):
+            batch = columns[i:i + PERMUTATION_BATCH]
+            for drops in parallel(delayed(_shuffle_drops)(predictor, X, y, scorer, base, [j]) for j in batch):
+                out += drops
+            if budget and (time.monotonic() - started) / len(out) * len(columns) > budget:
+                return None
+    return np.array(out)
+
+
+def _shuffle_drops(predictor, X, y, scorer, base, columns):
+    X = X.copy()
+    drops = []
+    for j in columns:
+        original = X.iloc[:, j].to_numpy().copy()  # Not a view, which the shuffles would overwrite
+        rng = np.random.default_rng([RANDOM_STATE, j])
+        scores = []
+        for _ in range(PERMUTATION_REPEATS):
+            X.iloc[:, j] = rng.permutation(original)
+            scores.append(base - scorer(predictor, X, y))
+        X.iloc[:, j] = original
+        drops.append(float(np.mean(scores)))
+    return drops
+
+
+def _one_call_permutation(model, X, y, columns):
+    """Drop in ROC-AUC for each shuffled column position, with the rows and every shuffled copy stacked into
+    one predict_proba call. RBF trains on each call, so this trains it once instead of once per copy."""
+    from sklearn.metrics import roc_auc_score
+
+    rng = np.random.default_rng(RANDOM_STATE)
+    copies = [X]
+    for j in columns:
+        for _ in range(PERMUTATION_REPEATS):
+            shuffled = X.copy()
+            shuffled[:, j] = rng.permutation(shuffled[:, j])
+            copies.append(shuffled)
+    scores = np.asarray(model.predict_proba(np.vstack(copies)))[:, 1].reshape(len(copies), len(X))
+    base = roc_auc_score(y, scores[0])
+    drops = np.array([base - roc_auc_score(y, s) for s in scores[1:]])
+    return drops.reshape(len(columns), PERMUTATION_REPEATS).mean(axis=1)
 
 
 # ---------------------------------------------------------------------------
@@ -1065,10 +1192,11 @@ def setup_report_folder(report_dir):
 
 
 def report_readme(params, results_no_smote, results_smote, errors=None, rows=None, charted="", classes=None,
-                  smote_skipped=False, warnings=None, failure=None):
+                  smote_skipped=False, warnings=None, failure=None, importance=None):
     """README.md for a run's report folder: what ran, which pass the charts show, and why any model wasn't trained.
     classes: {target value: row count}. smote_skipped: the SMOTE pass was asked for but had too few rows.
-    warnings: data warnings from warn(). failure: the error that stopped the run before training."""
+    warnings: data warnings from warn(). failure: the error that stopped the run before training.
+    importance: {model_key: note} on permutation feature importance, from feature_importances()."""
     lines = ["# Run Models Report", ""]
     if failure:
         lines += [f"The run stopped before training: {failure}", ""]
@@ -1090,6 +1218,8 @@ def report_readme(params, results_no_smote, results_smote, errors=None, rows=Non
         lines.append("SMOTE was skipped: it needs two classes with at least 2 training rows each.")
     if warnings:
         lines += ["", "Data warnings:", ""] + [f"- {msg}" for msg in warnings]
+    if importance:
+        lines += ["", "Feature importance:", ""] + [f"- {MODEL_TITLES.get(k, k)}: {msg}" for k, msg in importance.items()]
     if errors:
         lines += ["", "Not trained:", ""] + [f"- {MODEL_TITLES.get(k, k)}: {msg}" for k, msg in errors.items()]
     return "\n".join(lines) + "\n"
@@ -1423,8 +1553,8 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=None, smot
     With `models: []` no model is trained, and the report folder still has the parameters and baseline.
     An optional ``evaluation:`` block in the YAML adds k-fold cross-validation (``model_performance_cv.csv``
     and the "cv" return key); the existing report files and behaviour are unchanged when it is absent.
-    Optional ``split``, ``search`` and ``hyperparameters`` sections (api/model-params.yaml) set the test
-    share and seed, the search size, and model settings. n_iter, when given, overrides search.n_iter.
+    Optional ``split``, ``search``, ``importance`` and ``hyperparameters`` sections (api/model-params.yaml) set
+    the test share and seed, the search size, feature importance for wide data, and model settings. n_iter, when given, overrides search.n_iter.
     """
     print("=" * 60 + "\n  RealityStream Run Models\n" + "=" * 60)
     params = load_parameters(yaml_path)
@@ -1496,12 +1626,15 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=None, smot
     with_smote = len(results_smote) >= len(results_no_smote) and bool(results_smote)
     charted = results_smote if with_smote else results_no_smote
     charted_label = "with SMOTE" if with_smote else "without SMOTE" if results_no_smote else ""
-    importances = feature_importances(charted, list(X.columns), X_test=X_test, y_test=y_test)
+    importance_notes = {}
+    importances = feature_importances(charted, list(X.columns), X_test=X_test, y_test=y_test, X_train=X_train,
+                                      y_train=y_train, options=settings["importance"], notes=importance_notes)
 
     setup_report_folder(report_dir)
     classes = {_json_value(k): int(v) for k, v in pd.Series(np.asarray(y).ravel()).value_counts().items()}
     readme = report_readme(params, results_no_smote, results_smote, errors, rows=X.shape, charted=charted_label,
-                           classes=classes, smote_skipped=smote_skipped, warnings=warnings)
+                           classes=classes, smote_skipped=smote_skipped, warnings=warnings,
+                           importance=importance_notes)
     write_reports(report_dir, params, results_no_smote, results_smote, importances, readme=readme)
     from charts import write_charts
 
@@ -1529,6 +1662,7 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=None, smot
         "feature_importance": {k: v.head(20).to_dict(orient="records") for k, v in importances.items()},
         "errors": errors,
         "warnings": warnings,
+        "importance": importance_notes,
         "uploaded_to": uploaded,
         "github": github,
     }

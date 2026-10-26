@@ -19,12 +19,13 @@ Linked from [ModelEarth/projects #63](https://github.com/ModelEarth/projects/iss
 | Preview / Active modes on Run Models, a 2-model limit in Active mode, each model's hyperparameters in its Details | 2026-10-21 |
 | Report charts (below): PNGs from `api/charts.py` for all 6 models, failed models and data warnings in each report's README.md, binary-safe push, `models: all` and comma lists read; deployed and checked on Cloud Run | 2026-10-26 |
 | Run IDs (below): `/run?stream=1` sends the run ID at once and keep-alive lines; `GET /run/<run_id>` for a dropped connection | 2026-10-26 |
+| Feature importance options: RBF's chart as a checkbox in its Parameters, and `importance` checkboxes (prescreen, time budget) for SVM and MLP charts on more than 200 features | 2026-10-26 |
 
 ## Report charts
 
 Reports from 2026-10-21 held only README.md, model-options.csv and parameters.yaml. Why, and what changed:
 
-- **No charts were written.** The Colab's plotting functions aren't in its export, so the trimmed `run_models.py` wrote only CSVs. `api/charts.py` now writes `metrics_dashboard.png`, `roc_curves_comparison.png`, `confusion_matrices.png`, `training_time_comparison.png` and `feature_importance_{model}.png`, which the report page (localsite's `displayCharts()`) shows from `files.json`. Feature importance is native for rfc, xgboost and lr, by permutation for svm and mlp (up to 200 features), and not drawn for rbf, whose every prediction retrains it.
+- **No charts were written.** The Colab's plotting functions aren't in its export, so the trimmed `run_models.py` wrote only CSVs. `api/charts.py` now writes `metrics_dashboard.png`, `roc_curves_comparison.png`, `confusion_matrices.png`, `training_time_comparison.png` and `feature_importance_{model}.png`, which the report page (localsite's `displayCharts()`) shows from `files.json`. Feature importance is native for rfc, xgboost and lr, and by permutation for svm and mlp. Over 200 features is skipped unless the `importance` section's checkboxes say otherwise: `prescreen` shuffles the 200 that track the target most closely (ANOVA F on the training rows), and `time_budget` shuffles all of them when the first 64 project a finish within `budget_seconds`, falling back to prescreen when both are checked. Uncapped, bees MN (10,260 features) took 69 s for MLP and 145 s for SVM locally, likely 5 and 11 minutes on Cloud Run. Locally on Eye Blinks that took 2.5 s for SVM, 0.05 s for MLP and under 0.1 s for the others. RBF's chart is optional (`hyperparameters: rbf: feature_importance: true`, a checkbox in its Parameters): its binary trains again on every prediction, so its shuffled copies of the test rows are stacked into one call (up to 100,000 rows), which trains it once more, about 2.5 more minutes for Eye Blinks on Cloud Run.
 - **A failed model left no trace.** Those runs chose only `rbf` on the default bees preset: Maine's 16 counties have one top-20-percent county, so training saw one class, and RBF needs two (as do LR and SVM). The Cloud Run logs confirm it: "rbf failed: RandomBitsForest supports binary targets only" on 12 training rows. On a Mac RBF always fails, since its binary runs on Linux only. The report's README.md now gives the rows, the target classes and each failure's reason, and the `/run` reply's `errors` shows on the page.
 - **Pushes would have broken images.** `upload_reports` sent every file as UTF-8 text. Binary files now go up as base64 blobs.
 - **Other fixes found while testing:** SMOTE inside the search's cross-validation was sized for the whole training split and failed on small classes (bees MN), RBF trained twice per pass (predict, then predict_proba), and `models: rbf,rfc,xgboost` and `models: all` in four presets were read as unknown models.
@@ -58,7 +59,7 @@ Now `POST /run?stream=1`, which the page sends, answers at once with the run ID 
 
 ## Next
 
-1. **Deploy the run IDs** (`./deploy/deploy-cloud-run.sh`) and try a long run from the page, such as Eye Blinks (All Six Models).
+1. **Try a long run from the page**, such as Eye Blinks (All Six Models), now that the run IDs are deployed (revision realitystream-00025). With RBF's feature_importance checked, check the time it adds: one more training, plus predicting 71,000 stacked rows for Eye Blinks.
 2. **SVC `probability=True`** is deprecated in scikit-learn 1.9 and removed in 1.11; switch to `CalibratedClassifierCV(SVC(), ensemble=False)`.
 3. **Rotate the old Data Commons key.** It was hardcoded in the Colab export; the code now reads `DATACOMMONS_API_KEY`.
 4. **Worker proxy in cloudroot** (below): `POST /api/realitystream/run` forwarded to Cloud Run.
@@ -70,11 +71,12 @@ The Colab export still has issues `run_models.py` doesn't: its data-loading cell
 
 ## Model Settings
 
-The Common Parameters panel on [Run Models](models/) (`js/model-params.js`) edits `split` and `search`, and each model's `hyperparameters` are in its Details in the Models panel, shown by its "N Parameters" button (or "Parameters" beside Expand all for every model, `#expand=params`). Leaving a section out keeps the default behavior.
+The Common Parameters panel on [Run Models](models/) (`js/model-params.js`) edits `split`, `search` and `importance`, and each model's `hyperparameters` are in its Details in the Models panel, shown by its "N Parameters" button (or "Parameters" beside Expand all for every model, `#expand=params`). Leaving a section out keeps the default behavior.
 
 ```yaml
 split: {test_size: 0.2, random_state: 42}
 search: {n_iter: 20}                    # RandomizedSearchCV tries for xgboost and mlp
+importance: {prescreen: true, time_budget: true, budget_seconds: 60}  # Permutation charts for over 200 features
 hyperparameters:
   rfc: {n_estimators: 100, max_depth: 8}
   xgboost: {learning_rate: 0.1}         # A fixed value leaves the search

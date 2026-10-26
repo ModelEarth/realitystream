@@ -89,7 +89,7 @@ AS y -- the povertyBinary for >= 2% in coming year, and no decline for current y
 
 Model keys for the YAML `models` list: `lr`, `rfc`, `rbf`, `svm`, `mlp`, `xgboost`. `rbf` is the Random Bits Forest binary, which runs on Linux only (Colab, Docker, Cloud Run); on Windows and macOS it is skipped with a warning.
 
-`report/` contains `model_performance_report_no_smote.csv`, `model_performance_report_smote.csv`, `feature_importance_xgboost.csv`, `parameters.yaml`, `model-options.csv`, `README.md` and `index.html`, plus PNG charts from `api/charts.py`: `metrics_dashboard.png`, `roc_curves_comparison.png`, `confusion_matrices.png`, `training_time_comparison.png` and `feature_importance_{model}.png` (rfc, xgboost and lr natively; svm and mlp by permutation, up to 200 features; none for rbf). The charts show the pass that trained more models (with SMOTE on a tie). `README.md` gives the rows, target classes and the reason any model wasn't trained, such as RBF on a Mac (its binary runs on Linux only) or a training split with a single class.
+`report/` contains `model_performance_report_no_smote.csv`, `model_performance_report_smote.csv`, `feature_importance_xgboost.csv`, `parameters.yaml`, `model-options.csv`, `README.md` and `index.html`, plus PNG charts from `api/charts.py`: `metrics_dashboard.png`, `roc_curves_comparison.png`, `confusion_matrices.png`, `training_time_comparison.png` and `feature_importance_{model}.png` (rfc, xgboost and lr natively; svm and mlp by permutation, up to 200 features unless `importance` sets `prescreen` or `time_budget`; rbf by permutation when its `feature_importance` hyperparameter is true, which trains it once more). The charts show the pass that trained more models (with SMOTE on a tie). `README.md` gives the rows, target classes and the reason any model wasn't trained, such as RBF on a Mac (its binary runs on Linux only) or a training split with a single class.
 
 ### Cross-validation (optional)
 
@@ -103,13 +103,17 @@ Add an `evaluation:` block to the parameters YAML to also score with k-fold cros
 
 ### Model settings (optional)
 
-Add `split`, `search` or `hyperparameters` sections to change the test share, the seed, the search size or a model's settings. Leave them out and the run is unchanged. [api/model-params.yaml](api/model-params.yaml) lists every setting with its default and range, and the run stops with a message naming the setting when a value isn't allowed.
+Add `split`, `search`, `importance` or `hyperparameters` sections to change the test share, the seed, the search size, feature importance for wide data or a model's settings. Leave them out and the run is unchanged. [api/model-params.yaml](api/model-params.yaml) lists every setting with its default and range, and the run stops with a message naming the setting when a value isn't allowed.
 
     split:
       test_size: 0.3        # 0.1 to 0.5 (default 0.2)
       random_state: 7       # seeds the split, models, SMOTE and search (default 42)
     search:
       n_iter: 10            # RandomizedSearchCV tries for xgboost and mlp (default 20)
+    importance:             # svm and mlp permutation charts on more than 200 features (skipped by default)
+      prescreen: true       # shuffle only the 200 features that track the target most closely
+      time_budget: true     # shuffle every feature when that fits in budget_seconds (tried first)
+      budget_seconds: 60
     hyperparameters:
       rfc: {n_estimators: 200, max_depth: 12}
       lr: {penalty: l1, solver: liblinear, C: 0.5}
