@@ -6,20 +6,22 @@
 ## Projects
 
 Replace TO DO with your name as you work on a project.  
-Write Loren when you've submitted a pull request to show your name.  
-Update related .ipynb and app.py file to also add your name.
+Write Loren when you've submitted a pull request to show your name.
 
 1. DONE: Generate features-importance reports for available models - Melody and Yogesh.
 2. DONE: Add a comparison process for accuracy reports into one table for viewing. - Melody
 3. DONE: Frontend UX for selecting Features and Targets - Kashmira
-4. TO DO: Send files from local python backup to Github (See run_models_cli.py and run_models.py and most recently archive/run_models_archive.py)
-5. PARTIALLY DONE: Add output files to the "[report](https://github.com/ModelEarth/reports/)" folder and add smart formatting in the index.html and javascript report display. We send it's content to GitHub as a final step in run_models.py.
+4. DONE: Send report files from the local python run to GitHub (`api/run_models.py --upload`, `push_report`; the Run Models page pushes with a browser-saved token). Set `GITHUB_REPORTS_REPO` to push to your own fork of [reports](https://github.com/ModelEarth/reports) when testing. - Vivek
+5. PARTIALLY DONE: Add output files to the "[report](https://github.com/ModelEarth/reports/)" folder and add smart formatting in the index.html and javascript report display. We send its content to GitHub as a final step in run_models.py.
+6. DONE: Run the Forest Canopy and all-years parameter files through `api/run_models.py` unchanged: join column aliases (`id`, `join.key`, `targets.column`), 5-digit FIPS matching, index-column drop, readable NAICS names in feature importance. - Vivek
+7. IN PROGRESS: Automated pull of recent forest canopy data from Google Data Commons (`process/canopy/canopy-process.py`), replacing the manually added target file and the missing timeseries file in [tree-canopy](https://github.com/ModelEarth/tree-canopy). Needs a `DATACOMMONS_API_KEY`. - Vivek
+8. TO DO: Decide what the `timeseries` section of a parameters file should drive (extra features per year, a trend target, or a chart in the report). `run_models.py` currently reports whether the file is reachable and does nothing else with it.
+9. TO DO: Pull 2-column targets (location id, Target) for UN topics directly from Google Data Commons using `dcid` values in parameters.yaml; `parameters-gdc.yaml` and `parameters_un_gcd.yaml` are the starting points. - Vivek (Nov 5)
+10. TO DO: More parameters files that join features and targets on county Fips, including the [all-years](https://github.com/ModelEarth/community-timelines/tree/main/training/all-years) features for states beyond Minnesota (one wide row per county, `Emp-<naics>-<year>` columns).
+11. TO DO: Test the default target path for bee data: when a parameters file has no `targets.path` and no `features.target_column`, `load_data` raises; decide whether to default to [bees-targets-top-20-percent.csv](https://github.com/ModelEarth/bee-data/tree/main/targets) as the colab did.
+12. TO DO: Compare each model's hold-out metrics with the state-held-out cross-validation added in #66, and show both on the report page so geographic overlap is visible.
 
-Additional items in our [RealityStream project list](https://github.com/modelearth/projects/issues/63)
-
-<!--
-TODO: imblearn import for cuML - Check if already done.
--->
+Additional history in our [RealityStream project list](https://github.com/modelearth/projects/issues/63). The Run Models colab is no longer maintained; all work happens in `api/run_models.py` and the [Run Models](models/) page.
 
 ### Updates made in 2025
 

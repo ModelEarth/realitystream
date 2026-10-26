@@ -119,13 +119,28 @@ Each model in the run summary lists its `params_used`, including the values the 
 
 ### Keys
 
-Settings are read one name at a time: first from the environment, then from the env file named by `automation/paths.yaml` in the [webroot](https://model.earth/webroot). The whole file is never loaded.
+Settings are read one name at a time: first from the environment, then from the OS credential store (see [api/keystore.md](api/keystore.md)), then from the env file named by `automation/paths.yaml` in the [webroot](https://model.earth/webroot). The whole file is never loaded.
 
-- `GITHUB_REPORTS_TOKEN` for `--upload` (GitHub token with write access to modelearth/reports)
-- `DATACOMMONS_API_KEY` for parameter files that use `dcid` (Google Data Commons)
+- `GITHUB_REPORTS_TOKEN` for `--upload` (GitHub token with write access to the reports repo)
+- `GITHUB_REPORTS_REPO` (default `modelearth/reports`) and `GITHUB_REPORTS_SITE` (default `https://model.earth/reports/`), to push somewhere else, for example your own fork while testing
+- `DATACOMMONS_API_KEY` for parameter files that use `dcid` and for `process/canopy/canopy-process.py` (request one at [apikeys.datacommons.org](https://apikeys.datacommons.org/))
 - `ENABLE_GPU=true` to use cuML models when RAPIDS is installed (falls back to scikit-learn otherwise)
 
 When a key is missing, the CLI and the Flask `/run` endpoint explain where to get it.
+
+#### Getting a GitHub token for report pushes
+
+1. Open [github.com/settings/tokens](https://github.com/settings/tokens) and choose **Generate new token (classic)**. Name it `realitystream reports`, set an expiry, tick the **repo** scope, and generate it. (A fine-grained token also works: give it **Contents: Read and write** on the reports repo.)
+2. Store it: `python api/keystore.py set GITHUB_REPORTS_TOKEN`, or add `GITHUB_REPORTS_TOKEN=<token>` to your env file. For the Run Models web page instead, save it on the [keys page](https://model.earth/keys/#need=GITHUB_REPORTS_TOKEN); the browser sends it as `X-GitHub-Token` and it never reaches a file.
+3. Check it: `python -c "import sys; sys.path.insert(0,'api'); from run_models import check_reports_token; print(check_reports_token())"` asks GitHub whether the token can write to the reports repo, without printing the token.
+
+#### Testing a push against your own fork
+
+Fork [modelearth/reports](https://github.com/ModelEarth/reports), then:
+
+    GITHUB_REPORTS_REPO=<you>/reports GITHUB_REPORTS_SITE=https://<you>.github.io/reports/       python api/run_models.py parameters/parameters.yaml --upload
+
+The run prints the folder it pushed, `<year>/run-<timestamp>/`, under your fork. Nothing reaches modelearth/reports until you drop the two variables.
 
 ### Cloud Run
 
