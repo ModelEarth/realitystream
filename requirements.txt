@@ -6,6 +6,7 @@ pandas>=2.0
 scikit-learn>=1.4
 imbalanced-learn>=0.12
 xgboost>=2.0
+matplotlib>=3.8        # report charts (api/charts.py)
 requests>=2.28
 keyring>=24            # optional local key store (api/keystore.py)
 openpyxl>=3.1          # NAICS6 industry names (xlsx)

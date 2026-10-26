@@ -89,7 +89,7 @@ AS y -- the povertyBinary for >= 2% in coming year, and no decline for current y
 
 Model keys for the YAML `models` list: `lr`, `rfc`, `rbf`, `svm`, `mlp`, `xgboost`. `rbf` is the Random Bits Forest binary, which runs on Linux only (Colab, Docker, Cloud Run); on Windows and macOS it is skipped with a warning.
 
-`report/` contains `model_performance_report_no_smote.csv`, `model_performance_report_smote.csv`, `feature_importance_xgboost.csv`, `parameters.yaml`, `model-options.csv`, `README.md` and `index.html`.
+`report/` contains `model_performance_report_no_smote.csv`, `model_performance_report_smote.csv`, `feature_importance_xgboost.csv`, `parameters.yaml`, `model-options.csv`, `README.md` and `index.html`, plus PNG charts from `api/charts.py`: `metrics_dashboard.png`, `roc_curves_comparison.png`, `confusion_matrices.png`, `training_time_comparison.png` and `feature_importance_{model}.png` (rfc, xgboost and lr natively; svm and mlp by permutation, up to 200 features; none for rbf). The charts show the pass that trained more models (with SMOTE on a tie). `README.md` gives the rows, target classes and the reason any model wasn't trained, such as RBF on a Mac (its binary runs on Linux only) or a training split with a single class.
 
 ### Cross-validation (optional)
 

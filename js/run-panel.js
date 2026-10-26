@@ -385,7 +385,11 @@ a.rs-btn-shape { display:inline-block; text-decoration:none; }
         + `${escapeHtml(s.n_iter)} search tries for XGBoost and MLP</p>` : '')
       + '<div class="rs-table-wrap"><table class="rs-table">'
       + '<tr><th>Model</th><th>Training</th><th>Accuracy</th><th>ROC-AUC</th><th>F1</th><th>Precision</th><th>Recall</th><th>Time</th><th>Settings</th></tr>'
-      + (rows.join('') || '<tr><td colspan="9">No models were trained.</td></tr>') + '</table></div>';
+      + (rows.join('') || '<tr><td colspan="9">No models were trained.</td></tr>') + '</table></div>'
+      // Data warnings, and models that failed with the reason (the report's README.md lists both)
+      + (data.warnings || []).map(text => `<p class="rs-run-settings">Data: ${escapeHtml(text)}</p>`).join('')
+      + Object.entries(data.errors || {}).map(([model, reason]) =>
+        `<p class="rs-run-settings">Not trained: ${escapeHtml(model)}. ${escapeHtml(reason)}</p>`).join('');
     host.style.display = 'block';
   }
 

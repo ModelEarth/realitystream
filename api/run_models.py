@@ -6,10 +6,12 @@ This is the trimmed, importable version of the Run Models colab
 pushes to github.com/modelearth/reports:
 
     report/
-      README.md, index.html, parameters.yaml, model-options.csv
+      README.md (what ran, and why any model wasn't trained), index.html, files.json, parameters.yaml, model-options.csv
       model_performance_report_no_smote.csv
       model_performance_report_smote.csv
       feature_importance_xgboost.csv
+      metrics_dashboard.png, roc_curves_comparison.png, confusion_matrices.png,
+      training_time_comparison.png, feature_importance_{model}.png (api/charts.py)
 
 Usage:
     python api/run_models.py parameters/parameters.yaml
@@ -22,7 +24,10 @@ automation/paths.yaml in the webroot. The whole env file is never loaded.
 """
 
 import argparse
+import base64
+import contextvars
 import csv
+import hashlib
 import json
 import os
 import platform
@@ -137,6 +142,17 @@ def reports_site(repo=None):
     if name.lower() == f"{owner.lower()}.github.io":
         return f"https://{name.lower()}/"
     return f"https://{owner.lower()}.github.io/{name}/"
+
+
+_RUN_WARNINGS = contextvars.ContextVar("run_warnings", default=None)  # Per thread, as gunicorn runs 4
+
+
+def warn(message):
+    """Print a data warning, and keep it for the run's README.md and /run reply (run_pipeline collects them)."""
+    print(f"  [WARN] {message}")
+    collected = _RUN_WARNINGS.get()
+    if collected is not None and message not in collected:
+        collected.append(message)
 
 
 def require_env(name):
@@ -421,6 +437,7 @@ def load_parameters(yaml_path_or_url):
 
     A YAML without a `models` line runs rfc. An empty one (`models: []`, as the Run Models page writes
     when every model is unchecked) trains none, and the run still writes its report folder.
+    `models` may also be text: one key, keys separated by commas, or `all`.
     """
     if yaml_path_or_url.startswith(("http://", "https://")):
         text = requests.get(yaml_path_or_url, timeout=60).text
@@ -429,8 +446,8 @@ def load_parameters(yaml_path_or_url):
             text = fh.read()
     params = yaml.safe_load(text) or {}
     models = params.get("models", ["rfc"]) or []
-    if isinstance(models, str):
-        models = [models]
+    if isinstance(models, str):  # "rbf,rfc,xgboost" in several presets; "all" for every model
+        models = list(MODEL_TITLES) if models.strip().lower() == "all" else [m.strip() for m in models.split(",")]
     keys = []
     for m in models:
         key = MODEL_KEYS.get(str(m).lower())
@@ -566,7 +583,7 @@ def load_data(param, return_groups=False):
                 frames.append(fetch_csv(url))
                 print(f"  [OK] Loaded features: {url}")
             except Exception as exc:
-                print(f"  [FAIL] {url}: {exc}")
+                warn(f"Features not loaded from {url}: {exc}")
         if not frames:
             raise FileNotFoundError("Could not load any feature files.")
         features_df = pd.concat(frames, ignore_index=True)
@@ -591,7 +608,7 @@ def load_data(param, return_groups=False):
     if target_col is None:
         raise ValueError(f"Cannot find target column ({'/'.join(candidates)}) in targets data.")
     if wanted and target_col != wanted:
-        print(f"  [WARN] targets.column '{wanted}' not in targets file; using '{target_col}'.")
+        warn(f"targets.column '{wanted}' isn't in the targets file, so '{target_col}' is used.")
 
     common = _common_column(param)
     f_cols = {c.lower(): c for c in features_df.columns}
@@ -665,10 +682,16 @@ class RandomBitsForest(BaseEstimator, ClassifierMixin):
             raise ValueError("RandomBitsForest supports binary targets only.")
         self._X = np.asarray(to_cpu(X), dtype=float)
         self.n_features_in_ = self._X.shape[1]
+        self._last_proba = None
         return self
 
     def predict_proba(self, X):
         X = np.asarray(to_cpu(X), dtype=float)
+        # Each call trains the forest again, so predict() after predict_proba() on the same rows reuses the result
+        rows = hashlib.sha1(np.ascontiguousarray(X).tobytes()).hexdigest()
+        cached = getattr(self, "_last_proba", None)
+        if cached is not None and cached[0] == rows:
+            return cached[1]
         binary = self._ensure_binary()
         work = tempfile.mkdtemp(prefix="rbf_")
         try:
@@ -683,7 +706,8 @@ class RandomBitsForest(BaseEstimator, ClassifierMixin):
             p1 = np.clip(pd.read_csv(paths["testYhat"], header=None).iloc[:, 0].to_numpy(float), 0, 1)
         finally:
             shutil.rmtree(work, ignore_errors=True)
-        return np.column_stack([1 - p1, p1])
+        self._last_proba = (rows, np.column_stack([1 - p1, p1]))
+        return self._last_proba[1]
 
     def predict(self, X):
         return self._le.inverse_transform((self.predict_proba(X)[:, 1] >= 0.5).astype(int))
@@ -777,8 +801,9 @@ SCALE_SENSITIVE = {"lr", "svm", "mlp"}
 
 
 def train_models(X_train, y_train, X_test, y_test, keys, random_state=RANDOM_STATE, n_iter=20, smote=False,
-                 hyperparameters=None):
-    """Train each requested model; return a list of result dicts (same fields as the colab).
+                 hyperparameters=None, errors=None):
+    """Train each requested model; return a list of result dicts (same fields as the colab, plus the test
+    predictions "y_pred" and "y_score" and a "predictor" taking unscaled rows, for the charts).
 
     Scaling (lr/svm/mlp) and SMOTE are fit on training data only. When a hyperparameter search
     runs they are imblearn Pipeline steps (grid keys prefixed ``model__``), so each CV fold fits
@@ -788,7 +813,9 @@ def train_models(X_train, y_train, X_test, y_test, keys, random_state=RANDOM_STA
 
     hyperparameters: {model_key: {field: value}} from validate_parameters(). Fixed values are set on the
     estimator and leave the search grid. Each result's "params_used" lists the model's settings.
+    errors: a dict that receives {model_key: reason} for each model that couldn't be trained.
     """
+    errors = {} if errors is None else errors
     from imblearn.over_sampling import SMOTE
     from imblearn.pipeline import Pipeline as ImbPipeline
     from sklearn.metrics import accuracy_score, balanced_accuracy_score, classification_report, roc_auc_score
@@ -804,6 +831,8 @@ def train_models(X_train, y_train, X_test, y_test, keys, random_state=RANDOM_STA
     can_search = len(class_counts) > 1 and class_counts.min() >= 5
     binary = len(class_counts) == 2
     smote_k = min(5, int(class_counts.min()) - 1) if smote else None
+    # In the search, SMOTE sees one CV fold's training part, 4/5 of the rows, so its smallest class is smaller
+    search_smote_k = min(5, int(class_counts.min()) * 4 // 5 - 1) if smote else None
     rng = np.random.default_rng(random_state)
     gpu = gpu_enabled()
     results = []
@@ -814,6 +843,7 @@ def train_models(X_train, y_train, X_test, y_test, keys, random_state=RANDOM_STA
             model = apply_hyperparameters(make_model(key, random_state), key, fixed, gpu)
         except Exception as exc:
             print(f"  [WARN] Skipping {key}: {exc}")
+            errors[key] = str(exc)
             continue
         print(f"\n[MODEL] Training {MODEL_TITLES[key]} ({key})...")
         scale = key in SCALE_SENSITIVE
@@ -827,7 +857,7 @@ def train_models(X_train, y_train, X_test, y_test, keys, random_state=RANDOM_STA
                 if scale:
                     steps.append(("scaler", StandardScaler()))
                 if smote:
-                    steps.append(("smote", SMOTE(random_state=random_state, k_neighbors=smote_k)))
+                    steps.append(("smote", SMOTE(random_state=random_state, k_neighbors=search_smote_k)))
                 steps.append(("model", model))
                 pipe = ImbPipeline(steps)
                 search = RandomizedSearchCV(
@@ -836,17 +866,21 @@ def train_models(X_train, y_train, X_test, y_test, keys, random_state=RANDOM_STA
                     scoring="roc_auc" if binary else "accuracy", n_jobs=-1, random_state=random_state,
                 )
                 search.fit(X_train, y_train_np)
-                fitted = search.best_estimator_
+                fitted = predictor = search.best_estimator_
                 best_model = fitted.named_steps["model"]  # final estimator, so feature_importances still works
                 y_pred = np.asarray(to_cpu(fitted.predict(X_test))).ravel()
                 y_prob = np.asarray(to_cpu(fitted.predict_proba(X_test))) if hasattr(fitted, "predict_proba") else None
             else:
                 # No search, so no CV here: scale and SMOTE the training split directly (leak-free).
                 X_tr, X_te, y_tr = X_train, X_test, y_train_np
+                predictor = model
                 if scale:
-                    scaler = StandardScaler()
+                    from sklearn.pipeline import Pipeline
+
+                    scaler = StandardScaler().set_output(transform="pandas")  # Keeps the column names
                     X_tr = pd.DataFrame(scaler.fit_transform(X_tr), columns=X_train.columns, index=X_train.index)
                     X_te = pd.DataFrame(scaler.transform(X_te), columns=X_test.columns, index=X_test.index)
+                    predictor = Pipeline([("scaler", scaler), ("model", model)])  # Both fitted, for unscaled rows
                 if smote:
                     X_tr, y_tr = SMOTE(random_state=random_state, k_neighbors=smote_k).fit_resample(X_tr, y_tr)
                 if gpu and key in ("rfc", "lr", "svm"):
@@ -855,6 +889,7 @@ def train_models(X_train, y_train, X_test, y_test, keys, random_state=RANDOM_STA
                     model.fit(cudf.DataFrame.from_pandas(pd.DataFrame(X_tr).reset_index(drop=True)),
                               cp.asarray(np.asarray(y_tr)))
                     X_te = cudf.DataFrame.from_pandas(X_te)
+                    predictor = None  # Takes cudf rows, so no permutation importance
                 else:
                     model.fit(X_tr, y_tr)
                 best_model = model
@@ -862,6 +897,7 @@ def train_models(X_train, y_train, X_test, y_test, keys, random_state=RANDOM_STA
                 y_prob = np.asarray(to_cpu(model.predict_proba(X_te))) if hasattr(model, "predict_proba") else None
         except Exception as exc:
             print(f"  [WARN] {key} failed: {exc}")
+            errors[key] = str(exc)
             continue
         elapsed = time.time() - start
 
@@ -883,6 +919,9 @@ def train_models(X_train, y_train, X_test, y_test, keys, random_state=RANDOM_STA
             "time": round(elapsed, 2),
             "params_used": params_used(key, best_model),
             "classification_report": report,
+            "y_pred": y_pred,
+            "y_score": y_prob[:, 1] if (y_prob is not None and y_prob.ndim == 2 and y_prob.shape[1] == 2) else None,
+            "predictor": predictor,
         }
         print(f"  Accuracy {result['accuracy']}  ROC-AUC {result['roc_auc']}  F1 {result['f1_score']}  "
               f"Balanced-Acc {result['balanced_accuracy']}  ({result['time']}s)")
@@ -928,11 +967,18 @@ def naics_name(feature):
     return f"{prefix}-{code}-{name}" + (f"-{year}" if year else "")
 
 
-def feature_importances(results, feature_names, map_naics=True):
-    """{model_key: DataFrame(Feature, Importance)} for models that expose importances."""
+PERMUTATION_MODELS = ("svm", "mlp")  # No built-in importances. rbf retrains on each prediction, so it's left out
+PERMUTATION_ROWS = 1000  # Test rows shuffled for permutation importance
+PERMUTATION_FEATURES = 200  # Wider data is skipped: each feature is scored 5 times
+
+
+def feature_importances(results, feature_names, map_naics=True, X_test=None, y_test=None):
+    """{model_key: DataFrame(Feature, Importance)} for models that expose importances, plus svm and mlp by
+    permutation on the test rows when X_test and y_test are given (DataFrame.attrs["method"] is "permutation")."""
     out = {}
     for r in results:
         key, model = r["model_type"], r["best_model"]
+        method = ""
         if key == "xgboost":
             scores = model.get_booster().get_score(importance_type="weight")
             values = [scores.get(f, scores.get(f"f{i}", 0)) for i, f in enumerate(feature_names)]
@@ -940,13 +986,43 @@ def feature_importances(results, feature_names, map_naics=True):
             values = np.asarray(to_cpu(model.feature_importances_)).ravel()
         elif key == "lr" and hasattr(model, "coef_"):
             values = np.abs(np.asarray(to_cpu(model.coef_))).ravel()
+        elif key in PERMUTATION_MODELS and X_test is not None and r.get("predictor") is not None:
+            values = _permutation_values(r["predictor"], X_test, y_test)
+            if values is None:
+                continue
+            method = "permutation"
         else:
             continue
         df = pd.DataFrame({"Feature": list(feature_names), "Importance": values})
         if map_naics:
             df["Feature"] = df["Feature"].map(naics_name)
-        out[key] = df.sort_values("Importance", ascending=False).reset_index(drop=True)
+        df = df.sort_values("Importance", ascending=False).reset_index(drop=True)
+        df.attrs["method"] = method
+        out[key] = df
     return out
+
+
+def _permutation_values(predictor, X_test, y_test):
+    """Mean drop in ROC-AUC (accuracy for more than two classes) when each feature is shuffled, or None."""
+    from sklearn.inspection import permutation_importance
+
+    if X_test.shape[1] > PERMUTATION_FEATURES:
+        print(f"  [INFO] No permutation importance for {X_test.shape[1]} features (limit {PERMUTATION_FEATURES})")
+        return None
+    X = X_test.fillna(0)  # Same imputation as train_models
+    y = np.asarray(y_test).ravel()
+    if len(X) > PERMUTATION_ROWS:
+        rows = np.random.default_rng(RANDOM_STATE).choice(len(X), PERMUTATION_ROWS, replace=False)
+        X, y = X.iloc[rows], y[rows]
+    if len(np.unique(y)) < 2:
+        return None
+    scoring = "roc_auc" if len(np.unique(y)) == 2 else "accuracy"
+    try:
+        return permutation_importance(predictor, X, y, scoring=scoring, n_repeats=5, random_state=RANDOM_STATE,
+                                      n_jobs=-1).importances_mean
+    except Exception as exc:
+        print(f"  [WARN] Permutation importance failed: {exc}")
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -988,7 +1064,41 @@ def setup_report_folder(report_dir):
             writer.writerow([name])
 
 
-def write_reports(report_dir, params, results_no_smote, results_smote, importances):
+def report_readme(params, results_no_smote, results_smote, errors=None, rows=None, charted="", classes=None,
+                  smote_skipped=False, warnings=None, failure=None):
+    """README.md for a run's report folder: what ran, which pass the charts show, and why any model wasn't trained.
+    classes: {target value: row count}. smote_skipped: the SMOTE pass was asked for but had too few rows.
+    warnings: data warnings from warn(). failure: the error that stopped the run before training."""
+    lines = ["# Run Models Report", ""]
+    if failure:
+        lines += [f"The run stopped before training: {failure}", ""]
+    about = f"Parameters: {params.get('folder') or 'unnamed'}"
+    if rows:
+        about += f", {rows[0]:,} rows and {rows[1]:,} features"
+    if classes:
+        about += ". Target rows: " + ", ".join(f"{value}: {count:,}" for value, count in sorted(classes.items()))
+    lines.append(about + ".")
+    passes = [label for label, results in (("without SMOTE", results_no_smote), ("with SMOTE", results_smote))
+              if results]
+    trained = list(dict.fromkeys(r["model_type"] for r in results_no_smote + results_smote))
+    if trained:
+        lines.append(f"Trained {', '.join(MODEL_TITLES[k] for k in trained)} ({' and '.join(passes)})."
+                     + (f" The charts show the run {charted}." if charted else ""))
+    elif not params.get("models") and not failure:
+        lines.append("No models were selected.")
+    if smote_skipped:
+        lines.append("SMOTE was skipped: it needs two classes with at least 2 training rows each.")
+    if warnings:
+        lines += ["", "Data warnings:", ""] + [f"- {msg}" for msg in warnings]
+    if errors:
+        lines += ["", "Not trained:", ""] + [f"- {MODEL_TITLES.get(k, k)}: {msg}" for k, msg in errors.items()]
+    return "\n".join(lines) + "\n"
+
+
+def write_reports(report_dir, params, results_no_smote, results_smote, importances, readme=None):
+    if readme:
+        with open(os.path.join(report_dir, "README.md"), "w", encoding="utf-8") as fh:
+            fh.write(readme)
     with open(os.path.join(report_dir, "parameters.yaml"), "w", encoding="utf-8") as fh:
         yaml.safe_dump(params, fh, sort_keys=False)
     if results_no_smote:
@@ -1035,10 +1145,15 @@ def upload_reports(report_dir, repo=None, branch="main", year=None, subfolder=No
     tree = []
     for path in sorted(Path(report_dir).glob("**/*")):
         if path.is_file():
-            with open(path, "rb") as fh:
-                content = fh.read().decode("utf-8", errors="replace")
+            data = path.read_bytes()
+            try:
+                entry = {"content": data.decode("utf-8")}
+            except UnicodeDecodeError:  # Charts and other binary files go up as base64 blobs
+                blob = call("POST", f"{api}/git/blobs",
+                            json={"content": base64.b64encode(data).decode("ascii"), "encoding": "base64"})
+                entry = {"sha": blob["sha"]}
             tree.append({"path": f"{remote_dir}/{path.relative_to(report_dir).as_posix()}",
-                         "mode": "100644", "type": "blob", "content": content})
+                         "mode": "100644", "type": "blob", **entry})
     new_tree = call("POST", f"{api}/git/trees", json={"base_tree": base_tree, "tree": tree})["sha"]
     commit = call("POST", f"{api}/git/commits",
                   json={"message": f"Run Models report {subfolder}", "tree": new_tree, "parents": [head_sha]})["sha"]
@@ -1051,9 +1166,12 @@ def upload_reports(report_dir, repo=None, branch="main", year=None, subfolder=No
 # Pipeline
 # ---------------------------------------------------------------------------
 
+NOT_SUMMARIZED = {"best_model", "predictor", "y_pred", "y_score"}  # Estimators and arrays, for the charts
+
+
 def summarize(results):
-    """JSON-safe view of a results list (drops the fitted estimators)."""
-    return [{k: v for k, v in r.items() if k != "best_model"} for r in results]
+    """JSON-safe view of a results list (drops the fitted estimators and test predictions)."""
+    return [{k: v for k, v in r.items() if k not in NOT_SUMMARIZED} for r in results]
 
 
 def split_data(X, y, test_size=0.2, random_state=RANDOM_STATE):
@@ -1062,15 +1180,22 @@ def split_data(X, y, test_size=0.2, random_state=RANDOM_STATE):
     from sklearn.model_selection import train_test_split
 
     if len(X) < 100:
-        print(f"  [WARN] Only {len(X)} rows; model estimates will be unstable.")
+        warn(f"Only {len(X)} rows; model estimates will be unstable.")
     counts = pd.Series(np.asarray(y).ravel()).value_counts()
+    if len(counts) < 2:
+        warn(f"Every row has target {counts.index[0]}, so models have only one class to learn.")
+    elif int(counts.min()) < 5:
+        warn(f"Only {int(counts.min())} of {len(y)} rows have target {counts.idxmin()}. Most models need more of "
+             "each class: add rows, for example more states or years.")
     stratify = y if (len(counts) >= 2 and int(counts.min()) >= 2) else None
-    if stratify is None:
-        print("  [WARN] Not every class has >= 2 rows; splitting without stratification.")
+    if stratify is None and len(counts) >= 2:
+        warn("Not every class has 2 rows or more, so the train/test split isn't stratified.")
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=test_size, random_state=random_state, stratify=stratify)
+    if len(counts) >= 2 and len(np.unique(np.asarray(y_train).ravel())) < 2:
+        warn(f"The {len(y_train)} training rows have only one class, so most models can't be trained.")
     if len(np.unique(np.asarray(y_test).ravel())) < 2:
-        print("  [WARN] Test set has a single class; ROC-AUC is undefined and reported as None.")
+        warn("The test rows have a single class, so ROC-AUC is undefined and reported as None.")
     return X_train, X_test, y_train, y_test
 
 
@@ -1159,7 +1284,7 @@ def cross_validate_models(X, y, groups, keys, folds=5, cv="stratified", random_s
     cv = str(cv).lower()
     n_groups = len(pd.unique(pd.Series(groups).dropna())) if groups is not None else 0
     if cv == "group" and n_groups < folds:
-        print(f"  [WARN] group CV needs >= {folds} groups (have {n_groups}); falling back to stratified.")
+        warn(f"Group cross-validation needs {folds} groups or more (have {n_groups}), so it's stratified instead.")
         cv = "stratified"
     if cv == "group":
         splits = list(GroupKFold(n_splits=folds).split(X, y_np, np.asarray(pd.Series(groups).astype("float"))))
@@ -1219,7 +1344,7 @@ def _warn_timeseries(param):
         state = "reachable" if reachable else "not found"
     except Exception as exc:
         state = f"not checked ({exc.__class__.__name__})"
-    print(f"  [WARN] timeseries.path is {state} and not used yet: {ts_path}")
+    warn(f"timeseries.path is {state} and not used yet: {ts_path}")
 
 
 # How to give a token write access, for the no-access messages
@@ -1316,40 +1441,71 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=None, smot
     print(f"   test_size: {test_size}   random_state: {seed}   n_iter: {n_iter}"
           + "".join(f"\n   {k}: {v}" for k, v in hyper.items() if k in keys))
 
+    warnings = []  # Data warnings (warn()), listed in README.md and the reply
+    _RUN_WARNINGS.set(warnings)
     evaluation = params.get("evaluation") or {}
     print("\n[DATA] Loading...")
-    if evaluation:
-        X, y, groups = load_data(param, return_groups=True)
-    else:
-        X, y = load_data(param)
-        groups = None
-    _warn_timeseries(param)
-    X_train, X_test, y_train, y_test = split_data(X, y, test_size=test_size, random_state=seed)
+    try:
+        if evaluation:
+            X, y, groups = load_data(param, return_groups=True)
+        else:
+            X, y = load_data(param)
+            groups = None
+        _warn_timeseries(param)
+        X_train, X_test, y_train, y_test = split_data(X, y, test_size=test_size, random_state=seed)
+    except Exception as exc:
+        # The report folder still records the parameters and why the data couldn't be used
+        setup_report_folder(report_dir)
+        write_reports(report_dir, params, [], [], {},
+                      readme=report_readme(params, [], [], warnings=warnings, failure=f"{exc.__class__.__name__}: {exc}"))
+        write_file_list(report_dir)
+        try:
+            push_report(report_dir, upload, name, token=token, label=token_label)
+        except MissingKey:
+            pass
+        raise
     print(f"  Train: {len(X_train)} rows   Test: {len(X_test)} rows   Features: {X.shape[1]}")
 
     baseline = majority_baseline(y_train, y_test)
     print(f"  Baseline (predict {baseline['majority_class']}): accuracy {baseline['accuracy']}  "
           f"balanced_acc {baseline['balanced_accuracy']}")
 
-    results_no_smote, results_smote = [], []
+    results_no_smote, results_smote, errors_no_smote, errors_smote = [], [], {}, {}
     if not keys:
         print("\n[TRAIN] No models selected, so none are trained")
     if keys and smote is not True:
         print("\n[TRAIN] Without SMOTE")
         results_no_smote = train_models(X_train, y_train, X_test, y_test, keys, random_state=seed, n_iter=n_iter,
-                                        smote=False, hyperparameters=hyper)
+                                        smote=False, hyperparameters=hyper, errors=errors_no_smote)
         _apply_lift(results_no_smote, baseline)
 
     if keys and smote is not False:
         print("\n[TRAIN] With SMOTE")
         results_smote = train_models(X_train, y_train, X_test, y_test, keys, random_state=seed, n_iter=n_iter,
-                                     smote=True, hyperparameters=hyper)
+                                     smote=True, hyperparameters=hyper, errors=errors_smote)
         _apply_lift(results_smote, baseline)
+    smote_skipped = bool(keys) and smote is not False and not results_smote and not errors_smote
+    # {model: reason} for each model a pass couldn't train, naming the pass when the other one trained it
+    trained = {r["model_type"] for r in results_no_smote + results_smote}
+    errors = {}
+    for label, failed in (("without SMOTE", errors_no_smote), ("with SMOTE", errors_smote)):
+        for k, msg in failed.items():
+            errors.setdefault(k, f"{msg} (failed {label}; the other pass trained it)" if k in trained else msg)
 
-    importances = feature_importances(results_smote or results_no_smote, list(X.columns))
+    # The charts show one pass: the one that trained more models, with SMOTE on a tie
+    with_smote = len(results_smote) >= len(results_no_smote) and bool(results_smote)
+    charted = results_smote if with_smote else results_no_smote
+    charted_label = "with SMOTE" if with_smote else "without SMOTE" if results_no_smote else ""
+    importances = feature_importances(charted, list(X.columns), X_test=X_test, y_test=y_test)
 
     setup_report_folder(report_dir)
-    write_reports(report_dir, params, results_no_smote, results_smote, importances)
+    classes = {_json_value(k): int(v) for k, v in pd.Series(np.asarray(y).ravel()).value_counts().items()}
+    readme = report_readme(params, results_no_smote, results_smote, errors, rows=X.shape, charted=charted_label,
+                           classes=classes, smote_skipped=smote_skipped, warnings=warnings)
+    write_reports(report_dir, params, results_no_smote, results_smote, importances, readme=readme)
+    from charts import write_charts
+
+    write_charts(report_dir, charted, y_test, importances, titles=MODEL_TITLES, label=charted_label)
 
     cv = None
     if evaluation and keys:
@@ -1371,6 +1527,8 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=None, smot
         "no_smote": summarize(results_no_smote),
         "smote": summarize(results_smote),
         "feature_importance": {k: v.head(20).to_dict(orient="records") for k, v in importances.items()},
+        "errors": errors,
+        "warnings": warnings,
         "uploaded_to": uploaded,
         "github": github,
     }

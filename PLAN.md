@@ -17,14 +17,46 @@ Linked from [ModelEarth/projects #63](https://github.com/ModelEarth/projects/iss
 | Model Settings: `split`, `search` and `hyperparameters` editing (below) | 2026-10-21 |
 | Run reports saved locally in `reports/{year}/run-{date-time}/` with a link after Run, pushed to GitHub when `GITHUB_REPORTS_TOKEN` is set, runs with no models | 2026-10-21 |
 | Preview / Active modes on Run Models, a 2-model limit in Active mode, each model's hyperparameters in its Details | 2026-10-21 |
+| Report charts (below): PNGs from `api/charts.py` for all 6 models, failed models and data warnings in each report's README.md, binary-safe push, `models: all` and comma lists read; deployed and checked on Cloud Run | 2026-10-26 |
+
+## Report charts
+
+Reports from 2026-10-21 held only README.md, model-options.csv and parameters.yaml. Why, and what changed:
+
+- **No charts were written.** The Colab's plotting functions aren't in its export, so the trimmed `run_models.py` wrote only CSVs. `api/charts.py` now writes `metrics_dashboard.png`, `roc_curves_comparison.png`, `confusion_matrices.png`, `training_time_comparison.png` and `feature_importance_{model}.png`, which the report page (localsite's `displayCharts()`) shows from `files.json`. Feature importance is native for rfc, xgboost and lr, by permutation for svm and mlp (up to 200 features), and not drawn for rbf, whose every prediction retrains it.
+- **A failed model left no trace.** Those runs chose only `rbf` on the default bees preset: Maine's 16 counties have one top-20-percent county, so training saw one class, and RBF needs two (as do LR and SVM). The Cloud Run logs confirm it: "rbf failed: RandomBitsForest supports binary targets only" on 12 training rows. On a Mac RBF always fails, since its binary runs on Linux only. The report's README.md now gives the rows, the target classes and each failure's reason, and the `/run` reply's `errors` shows on the page.
+- **Pushes would have broken images.** `upload_reports` sent every file as UTF-8 text. Binary files now go up as base64 blobs.
+- **Other fixes found while testing:** SMOTE inside the search's cross-validation was sized for the whole training split and failed on small classes (bees MN), RBF trained twice per pass (predict, then predict_proba), and `models: rbf,rfc,xgboost` and `models: all` in four presets were read as unknown models.
+
+Checked 2026-10-26 with Python 3.9 / scikit-learn 1.6 and Python 3.14 / scikit-learn 1.9 (47 tests):
+
+| YAML | Rows, features | Models charted | Time |
+|---|---|---|---|
+| parameters-blinks.yaml with all models | 14,980, 14 | lr, rfc, svm, mlp, xgboost | 40 s |
+| parameters-all-years-bees-MN.yaml with all models | 84, 10,260 | lr, rfc, svm, mlp, xgboost | 30 s |
+| parameters-datacenter-locations.yaml with all models | 7, 8 | lr, rfc, svm, mlp, xgboost | 4 s |
+| parameters.yaml, bees in Maine only (before) | 16, 57 | rfc, mlp, xgboost (one class in training) | 2 s |
+| parameters.yaml, bees in CT, ME, MA, NH, RI, VT (now), all models | 59, 57 (11 positive) | lr, rfc, svm, mlp, xgboost | 6 s |
+
+Data problems (too few rows, one class, a feature file that didn't load) are listed under "Data warnings" in the report's README.md and in the `/run` reply's `warnings`. A run whose data can't be loaded still writes a README.md naming the error.
+
+On Cloud Run (revision realitystream-00023, deployed 2026-10-26), pushed to modelearth/reports:
+
+| Run | Result | Report |
+|---|---|---|
+| Eye Blinks, rbf only | accuracy 0.944, ROC-AUC 0.989; 148 s a pass (315 s before RBF stopped training twice) | [run-2026-10-26T05-01-35](https://model.earth/reports/2026/run-2026-10-26T05-01-35/) |
+| Bees in 6 New England states, all 6 models | every model charted, RBF included; 47 s | [run-2026-10-26T05-07-12](https://model.earth/reports/2026/run-2026-10-26T05-07-12/) |
+
+The PNGs reach GitHub intact. Locally, a test runs RBF's code path through the charts with a stand-in binary.
 
 ## Next
 
-1. **Rotate the old Data Commons key.** It was hardcoded in the Colab export; the code now reads `DATACOMMONS_API_KEY`.
-2. **Worker proxy in cloudroot** (below): `POST /api/realitystream/run` forwarded to Cloud Run.
-3. **GPU service** `realitystream-gpu` with a `requirements-gpu.txt`, and timing against the CPU service.
-4. **`timeseries` section** in the canopy YAML: the file is missing in tree-canopy. Decide what it should do.
-5. **Data Commons two-column targets.**
+1. **SVC `probability=True`** is deprecated in scikit-learn 1.9 and removed in 1.11; switch to `CalibratedClassifierCV(SVC(), ensemble=False)`.
+2. **Rotate the old Data Commons key.** It was hardcoded in the Colab export; the code now reads `DATACOMMONS_API_KEY`.
+3. **Worker proxy in cloudroot** (below): `POST /api/realitystream/run` forwarded to Cloud Run.
+4. **GPU service** `realitystream-gpu` with a `requirements-gpu.txt`, and timing against the CPU service.
+5. **`timeseries` section** in the canopy YAML: the file is missing in tree-canopy. Decide what it should do.
+6. **Data Commons two-column targets.**
 
 The Colab export still has issues `run_models.py` doesn't: its data-loading cell forces the eye-blinks parameters, five cells call a venv path on one developer's Mac, and the SMOTE cell imports cudf unconditionally.
 

@@ -470,6 +470,105 @@ def test_empty_models_still_write_the_report(tmp_path, monkeypatch):
     # A YAML without a models line still runs rfc
     params.write_text("folder: t\nfeatures:\n  path: x\n", encoding="utf-8")
     assert rm.load_parameters(str(params))["models"] == ["rfc"]
+    # Text forms in the presets: comma-separated keys, and all
+    params.write_text("models: rbf,rfc, XGBoost\n", encoding="utf-8")
+    assert rm.load_parameters(str(params))["models"] == ["rbf", "rfc", "xgboost"]
+    params.write_text("models: all\n", encoding="utf-8")
+    assert rm.load_parameters(str(params))["models"] == ["lr", "rfc", "rbf", "svm", "mlp", "xgboost"]
+
+
+def test_run_pipeline_writes_charts_and_lists_failed_models(tmp_path, monkeypatch):
+    """Every trained model reaches the PNG charts; one that fails is named, with its reason, in README.md."""
+    X, y = _mixed_scale(n=200, minority=50, big=5.0)
+    monkeypatch.setattr(rm, "load_data", lambda param: (X, y))
+    monkeypatch.setattr(rm, "setup_report_folder", lambda d: os.makedirs(d, exist_ok=True))
+    monkeypatch.setattr(rm.platform, "system", lambda: "Darwin")  # rbf fails off Linux
+    params = tmp_path / "p.yaml"
+    params.write_text("folder: t\nfeatures:\n  path: x\nmodels: [lr, rfc, rbf, svm, mlp, xgboost]\n"
+                      "search: {n_iter: 2}\n", encoding="utf-8")
+    out = rm.run_pipeline(str(params), report_dir=str(tmp_path / "r"), smote=True)
+    assert list(out["errors"]) == ["rbf"] and "Linux" in out["errors"]["rbf"]
+    assert "y_pred" not in out["smote"][0] and "predictor" not in out["smote"][0]
+    import json as _json
+    listed = _json.loads((tmp_path / "r" / "files.json").read_text(encoding="utf-8"))["files"]
+    for name in ["metrics_dashboard.png", "roc_curves_comparison.png", "confusion_matrices.png",
+                 "training_time_comparison.png"] + [f"feature_importance_{k}.png" for k in ("lr", "rfc", "svm", "mlp", "xgboost")]:
+        assert name in listed and (tmp_path / "r" / name).read_bytes()[:4] == b"\x89PNG"
+    readme = (tmp_path / "r" / "README.md").read_text(encoding="utf-8")
+    assert "Random Bits Forest: The Random Bits Forest binary runs on Linux only" in readme
+    assert "charts show the run with SMOTE" in readme
+
+
+def test_data_warnings_and_load_failures_reach_the_readme(tmp_path, monkeypatch):
+    """One positive county among 16 rows: the README says so. A load error still leaves a README naming it."""
+    X, y = _data(n=16)
+    y = pd.Series([0] * 15 + [1])
+    monkeypatch.setattr(rm, "load_data", lambda param: (X, y))
+    monkeypatch.setattr(rm, "setup_report_folder", lambda d: os.makedirs(d, exist_ok=True))
+    params = tmp_path / "p.yaml"
+    params.write_text("folder: t\nfeatures:\n  path: x\nmodels: [lr, rfc]\n", encoding="utf-8")
+    out = rm.run_pipeline(str(params), report_dir=str(tmp_path / "r"), smote=False)
+    readme = (tmp_path / "r" / "README.md").read_text(encoding="utf-8")
+    assert "Data warnings:" in readme and "- Only 1 of 16 rows have target 1" in readme
+    assert any(w.startswith("Only 1 of 16 rows have target 1") for w in out["warnings"])
+
+    def missing(param):
+        raise ValueError("Merge produced 0 rows. Check the common column values.")
+    monkeypatch.setattr(rm, "load_data", missing)
+    with pytest.raises(ValueError):
+        rm.run_pipeline(str(params), report_dir=str(tmp_path / "r2"))
+    assert "stopped before training: ValueError: Merge produced 0 rows" in (tmp_path / "r2" / "README.md").read_text(
+        encoding="utf-8")
+
+
+def test_rbf_runs_once_per_pass_and_reaches_the_charts(tmp_path, monkeypatch):
+    """A stand-in for the Linux RBF binary: scores rows by their first column, and counts its runs."""
+    calls = tmp_path / "calls"
+    fake = tmp_path / "rbf"
+    fake.write_text(f"#!{sys.executable}\nimport sys\nopen({str(calls)!r}, 'a').write('run\\n')\n"
+                    "testx, out = sys.argv[-2:]\n"
+                    "rows = [float(line.split(',')[0]) for line in open(testx)]\n"
+                    "open(out, 'w').write('\\n'.join(str(min(1, max(0, v / 4 + 0.5))) for v in rows))\n",
+                    encoding="utf-8")
+    fake.chmod(0o755)
+    monkeypatch.setattr(rm.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(rm.RandomBitsForest, "_ensure_binary", lambda self: str(fake))
+    X, y = _data()
+    results = rm.train_models(X[:90], y[:90], X[90:], y[90:], ["rbf"])
+    assert [r["model_type"] for r in results] == ["rbf"] and results[0]["roc_auc"] is not None
+    assert calls.read_text().count("run") == 1  # predict() reused predict_proba()'s run
+    from charts import write_charts
+    written = write_charts(str(tmp_path), results, y[90:], rm.feature_importances(results, list(X.columns)))
+    assert written == ["metrics_dashboard.png", "roc_curves_comparison.png", "confusion_matrices.png",
+                       "training_time_comparison.png"]
+
+
+def test_upload_reports_sends_images_as_base64_blobs(tmp_path, monkeypatch):
+    (tmp_path / "README.md").write_text("# Report", encoding="utf-8")
+    png = b"\x89PNG\r\n\x1a\n\x00\xff"
+    (tmp_path / "chart.png").write_bytes(png)
+    sent = []
+
+    class Resp:
+        def __init__(self, body):
+            self.body = body
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return self.body
+
+    def request(method, url, json=None, **kw):
+        sent.append((method, url, json))
+        return Resp({"object": {"sha": "head"}, "tree": {"sha": "base"}, "sha": "new"})
+
+    monkeypatch.setattr(rm.requests, "request", request)
+    rm.upload_reports(str(tmp_path), repo="o/r", year="2026", subfolder="run-x", token="t")
+    import base64 as _b64
+    blob = next(body for method, url, body in sent if url.endswith("/git/blobs"))
+    assert blob["encoding"] == "base64" and _b64.b64decode(blob["content"]) == png
+    tree = next(body for method, url, body in sent if url.endswith("/git/trees"))["tree"]
+    assert {"path": "2026/run-x/chart.png", "mode": "100644", "type": "blob", "sha": "new"} in tree
+    assert {"path": "2026/run-x/README.md", "mode": "100644", "type": "blob", "content": "# Report"} in tree
 
 
 def test_push_report_auto_without_token(tmp_path, monkeypatch):
