@@ -1240,10 +1240,35 @@ def write_reports(report_dir, params, results_no_smote, results_smote, importanc
     print(f"\n[REPORT] {len(os.listdir(report_dir))} files in {os.path.abspath(report_dir)}")
 
 
-def report_name(now=None):
-    """Report folder path for a run started now: {year}/run-{date}T{time}, as in the reports repo."""
+# Preset names, such as "Eye Blinks (All Six Models)", with their YAML URLs
+PARAMETER_PATHS = Path(__file__).resolve().parent.parent / "parameters" / "parameter-paths.csv"
+
+
+def report_slug(title):
+    """A report folder's name before its date: "Eye Blinks (All Six Models)" -> "eye-blinks-all-six-models".
+    "run" when there's no title."""
+    slug = re.sub(r"[^a-z0-9]+", "-", str(title or "").lower()).strip("-")[:60].strip("-")
+    return slug or "run"
+
+
+def preset_title(yaml_path):
+    """The parameter-paths.csv name of a preset YAML, matched by file name, or None."""
+    filename = os.path.basename(str(yaml_path or "")).lower()
+    try:
+        with open(PARAMETER_PATHS, newline="", encoding="utf-8") as fh:
+            for row in csv.reader(fh):
+                if len(row) >= 2 and row[1].strip().rsplit("/", 1)[-1].lower() == filename:
+                    return row[0].strip()
+    except OSError:
+        pass
+    return None
+
+
+def report_name(now=None, title=None):
+    """Report folder path for a run started now: {year}/{name}-{date}T{time}, such as
+    2026/eye-blinks-all-six-models-2026-10-26T09-15-00. The name is the preset's title as a slug (report_slug)."""
     now = now or datetime.now()
-    return now.strftime("%Y/run-%Y-%m-%dT%H-%M-%S")
+    return now.strftime("%Y/") + report_slug(title) + now.strftime("-%Y-%m-%dT%H-%M-%S")
 
 
 def write_file_list(report_dir):
@@ -1548,7 +1573,8 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=None, smot
     """Load params -> fetch data -> train (plain and SMOTE) -> write report folder -> optional upload.
 
     smote: None trains both without and with SMOTE, False only without, True only with.
-    upload: True, False or "auto" (push_report). name: the {year}/run-{date-time} folder it pushes to.
+    upload: True, False or "auto" (push_report). name: the {year}/{name}-{date-time} folder it pushes to
+    (report_name; the preset's title from parameter-paths.csv when not given).
     token: a GitHub token sent from the browser, pushed with in place of GITHUB_REPORTS_TOKEN (token_label names it).
     With `models: []` no model is trained, and the report folder still has the parameters and baseline.
     An optional ``evaluation:`` block in the YAML adds k-fold cross-validation (``model_performance_cv.csv``
@@ -1557,6 +1583,7 @@ def run_pipeline(yaml_path, report_dir="report", upload=False, n_iter=None, smot
     the test share and seed, the search size, feature importance for wide data, and model settings. n_iter, when given, overrides search.n_iter.
     """
     print("=" * 60 + "\n  RealityStream Run Models\n" + "=" * 60)
+    name = name or report_name(title=preset_title(yaml_path))
     params = load_parameters(yaml_path)
     param = DictToObject(OrderedDict(params))
     keys = params["models"]

@@ -10,18 +10,20 @@ RealityStream serverless API for Google Cloud Run: Flask wrapper around run_mode
                                header X-GitHub-Token checks a token saved in the browser (keys/#need=GITHUB_REPORTS_TOKEN) instead
     GET  /model-params         settings the YAML's split, search, importance and hyperparameters sections may set
                                (api/model-params.yaml), for the Common Parameters panel and each model's fields
-    POST /run[?upload=1][&smote=0|1][&stream=1]
+    POST /run[?upload=1][&smote=0|1][&stream=1][&title=...]
                                body = parameters.yaml text, or JSON {"parameters": "parameters-blinks.yaml"}
                                returns the run summary as JSON; smote=0 trains only without SMOTE,
                                smote=1 only with SMOTE, omitted trains both. stream=1 answers at once with
                                JSON lines (application/x-ndjson): {"status": "running", "run_id", "report_name"},
-                               {"status": "running", "seconds"} every 15 seconds, then the summary with http_status
+                               {"status": "running", "seconds"} every 15 seconds, then the summary with http_status.
+                               title (a preset's name) starts the report folder's name
     GET  /run/<run_id>         a run's summary once it's done (as /run returns it), waiting up to 25 seconds,
                                else HTTP 202 with {"status": "running", "seconds"}; 404 for an unknown ID (kept 6 hours)
 
-Each run's report folder is named {year}/run-{date}T{time}. Run locally (not on Cloud Run), it's saved in
+Each run's report folder is named {year}/{name}-{date}T{time}, where name is the preset's title as a slug
+(?title=, or the preset's row in parameter-paths.csv), or "run". Run locally (not on Cloud Run), it's saved in
 the webroot's reports folder (REPORTS_DIR overrides), and `output_path` (for example
-reports/2026/run-2026-10-21T14-05-00/) is its path from the webroot. With the Team Passphrase, the folder is
+reports/2026/eye-blinks-2026-10-21T14-05-00/) is its path from the webroot. With the Team Passphrase, the folder is
 also pushed to GitHub modelearth/reports when GITHUB_REPORTS_TOKEN is set; `github.message` says whether it
 was. upload=1 requires the push (HTTP 400 without the token). Header X-GitHub-Token, a token saved in the
 browser, is pushed with in place of the setting, with or without the Team Passphrase.
@@ -232,6 +234,7 @@ ENDPOINTS = {
                  'Add ?smote=0 to train only without SMOTE, ?smote=1 only with SMOTE (omit to train both), '
                  'Reports are pushed to GitHub when GITHUB_REPORTS_TOKEN is set (needs the key); ?upload=1 requires it. '
                  '?stream=1 answers at once with JSON lines: the run_id, a line every 15 seconds, then the result. '
+                 '?title= (a preset name, such as Eye Blinks) starts the report folder name: 2026/eye-blinks-{date-time}. '
                  'Without header X-API-Key: 1 model, once per day.',
     "GET /run/<run_id>": "A run's result once it's done (HTTP 202 while it runs)",
 }
@@ -411,9 +414,11 @@ def run():
                         "message": f"Without the Team Passphrase, you can run 1 model once per day. {MORE_RUNS}"}), 429
     usage.count_run(count_as, today)
 
-    from run_models import report_name
+    from run_models import preset_title, report_name
 
-    name = report_name()
+    # The report folder starts with the preset's name: from parameter-paths.csv for a preset,
+    # or ?title= from the page (its Settings menu choice, or the report being rerun)
+    name = report_name(title=preset_title(preset) if preset else request.args.get("title"))
     sent = browser_github_token()
     # Pushed to GitHub when a token is available (upload=1 requires it). Keyless runs are pushed only
     # with the browser's own token, not the service's.

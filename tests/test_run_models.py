@@ -591,6 +591,17 @@ def test_push_report_auto_without_token(tmp_path, monkeypatch):
     assert re.fullmatch(r"\d{4}/run-\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d", rm.report_name())
 
 
+def test_report_name_from_preset():
+    from datetime import datetime
+    when = datetime(2026, 10, 26, 9, 15, 0)
+    assert rm.report_name(when, "Eye Blinks (All Six Models)") == "2026/eye-blinks-all-six-models-2026-10-26T09-15-00"
+    assert rm.report_name(when, " ** ") == "2026/run-2026-10-26T09-15-00"
+    assert rm.report_slug("x" * 100) == "x" * 60
+    assert rm.preset_title("parameters/parameters-blinks-all-models.yaml") == "Eye Blinks (All Six Models)"
+    assert rm.preset_title("parameters-blinks.yaml") == "Eye Blinks"
+    assert rm.preset_title("not-a-preset.yaml") is None
+
+
 def test_check_reports_token(monkeypatch):
     class Resp:
         def __init__(self, code, body=None):

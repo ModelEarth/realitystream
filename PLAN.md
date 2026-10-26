@@ -20,6 +20,7 @@ Linked from [ModelEarth/projects #63](https://github.com/ModelEarth/projects/iss
 | Report charts (below): PNGs from `api/charts.py` for all 6 models, failed models and data warnings in each report's README.md, binary-safe push, `models: all` and comma lists read; deployed and checked on Cloud Run | 2026-10-26 |
 | Run IDs (below): `/run?stream=1` sends the run ID at once and keep-alive lines; `GET /run/<run_id>` for a dropped connection | 2026-10-26 |
 | Feature importance options: RBF's chart as a checkbox in its Parameters, and `importance` checkboxes (prescreen, time budget) for SVM and MLP charts on more than 200 features | 2026-10-26 |
+| `metrics_comparison.png` (six metrics, 3 x 2); report folders named after the preset (`2026/eye-blinks-all-six-models-{date-time}`); a Rerun Report button on each report opens Run Models with its parameters.yaml and a link back | 2026-10-26 |
 
 ## Report charts
 

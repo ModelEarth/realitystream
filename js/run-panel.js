@@ -6,7 +6,8 @@
 // local API at port 8080 when `python api/main.py` is running there, and ?api= in the page URL picks
 // another, for example ?api=https://realitystream-kwr4qrkopq-uc.a.run.app/ to run on Cloud Run.
 //
-// Each run writes a report folder ({year}/run-{date}T{time}, with an index.html). The local API saves it
+// Each run writes a report folder ({year}/{name}-{date}T{time}, with an index.html), where name is the Settings
+// menu's preset name as a slug (sent as ?title=), or "run". The local API saves it
 // in the webroot's reports folder, and the link after the Run button opens it. With GITHUB_REPORTS_TOKEN
 // set, the same folder is pushed to GitHub modelearth/reports, and a line below the button says whether it was.
 // A GITHUB_REPORTS_TOKEN saved in this browser on the keys page (webroot keys/, #need=GITHUB_REPORTS_TOKEN)
@@ -93,6 +94,7 @@
 .rs-run-label { font-weight:600; margin:16px 0 6px; }
 .rs-run-label-note { font-weight:400; }
 .rs-report-dest { margin-top:10px; opacity:.85; }
+.rs-rerun-note { margin:4px 0 8px; }
 /* A green View Output button right of Run Models, and the report's path on the line after */
 .rs-output-row { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; margin-bottom:10px; }
 a.rs-output-link { display:inline-block; border-radius:8px; padding:9px 22px; font-size:16px; line-height:1.25;
@@ -528,12 +530,46 @@ a.rs-btn-shape { display:inline-block; text-decoration:none; }
     github.classList.toggle('rs-token-warning', warn);
   }
 
+  // A report's "Rerun Report" button (localsite explore.js) opens this page with #customYamlUrl= (its parameters.yaml)
+  // and #report= (its page). Returns {url, name} for that report, or null. name is its folder, such as
+  // eye-blinks-all-six-models-2026-10-26T09-15-00, and is also the return link's target, so it reuses the report's tab.
+  function rerunReport() {
+    const hash = typeof getHash === 'function' ? getHash() : {};
+    if (!hash.report || !hash.customYamlUrl) return null; // Choosing a preset drops customYamlUrl
+    let url = String(hash.report);
+    try { url = decodeURIComponent(url.replace(/\+/g, ' ')); } catch (e) {}
+    if (!/^https?:\/\//.test(url)) return null;
+    const name = url.replace(/[?#].*$/, '').replace(/\/(index\.html)?$/, '').split('/').pop();
+    return name ? { url, name } : null;
+  }
+
+  function updateRerunNote() {
+    const el = document.querySelector('#rsRunControls .rs-rerun-note');
+    if (!el) return;
+    const report = rerunReport();
+    el.hidden = !report;
+    el.innerHTML = report ? `Rerunning <a href="${escapeHtml(report.url)}" target="${escapeHtml(report.name)}">${escapeHtml(report.name)}</a>` : '';
+  }
+
+  // The name a run's report folder starts with (?title=): the report being rerun, without its date, or the preset
+  // chosen in Settings. '' for a custom YAML, which the API names "run".
+  function runTitle() {
+    const report = rerunReport();
+    if (report) {
+      const name = report.name.replace(/-?\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d$/, '');
+      return name === 'run' ? '' : name;
+    }
+    const select = document.getElementById('parambase');
+    const option = select && select.selectedOptions && select.selectedOptions[0];
+    return option && option.value && option.value !== 'custom' ? option.textContent.trim() : '';
+  }
+
   // Where runs go, before a run (from the API's home JSON)
   function updateReportDest() {
     const el = document.querySelector('#rsRunControls .rs-report-dest');
     if (!el || !info) return;
     el.innerHTML = info.saves_locally
-      ? `Runs use your local API (${escapeHtml(apiBase())}), which saves each run's output in your webroot's <code>reports/{year}/run-{date-time}</code> folder.`
+      ? `Runs use your local API (${escapeHtml(apiBase())}), which saves each run's output in your webroot's <code>reports/{year}/{name}-{date-time}</code> folder.`
       : 'Runs use the RealityStream Cloud Run service.' + (onLocalhost ? ' ' + START_LOCAL_API : '');
     // refreshUsage() runs again after each run, so keep showing that run's output
     if (!running) showOutput(lastRun);
@@ -606,7 +642,9 @@ a.rs-btn-shape { display:inline-block; text-decoration:none; }
       return;
     }
     const smote = (document.querySelector('#rsRunControls input[name="rs_smote"]:checked') || {}).value || '';
-    const url = apiBase() + 'run?stream=1' + (smote ? '&smote=' + smote : '');
+    const title = runTitle();
+    const url = apiBase() + 'run?stream=1' + (smote ? '&smote=' + smote : '')
+      + (title ? '&title=' + encodeURIComponent(title) : '');
     const headers = { 'Content-Type': 'text/yaml' };
     const key = keyInputEl();
     if (key && key.value.trim()) headers['X-API-Key'] = key.value.trim();
@@ -701,6 +739,7 @@ a.rs-btn-shape { display:inline-block; text-decoration:none; }
       if (b) setMode(b.dataset.mode);
     });
     controls.innerHTML = `
+<div class="rs-rerun-note" hidden></div>
 <div class="rs-run-label rs-smote-label">SMOTE oversampling <span class="rs-run-label-note">– Adds synthetic examples of the rarer class to balance training</span></div>
 <div class="rs-smote">
   <label><input type="radio" name="rs_smote" value="" checked> Without and with SMOTE</label>
@@ -763,6 +802,8 @@ a.rs-btn-shape { display:inline-block; text-decoration:none; }
       $('rsResults').innerHTML = '<h2>Results</h2><div class="rs-results-body"></div>';
       $('rsResults').style.display = 'none';
     }
+    updateRerunNote();
+    window.addEventListener('hashchange', updateRerunNote);
     initLayoutSwitch();
     applyKeyMode();
     ready.then(() => { checkGithubToken(); return refreshUsage(); }).then(() => checkKey(false));
