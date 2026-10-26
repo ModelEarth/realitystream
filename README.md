@@ -127,7 +127,7 @@ Settings are read one name at a time: first from the environment, then from the 
 
 - `GITHUB_REPORTS_TOKEN` for `--upload` (GitHub token with write access to the reports repo)
 - `GITHUB_REPORTS_REPO` (default `modelearth/reports`) and `GITHUB_REPORTS_SITE` (default `https://model.earth/reports/`), to push somewhere else, for example your own fork while testing
-- `DATACOMMONS_API_KEY` for parameter files that use `dcid` and for `process/canopy/canopy-process.py` (request one at [apikeys.datacommons.org](https://apikeys.datacommons.org/))
+- `DATACOMMONS_API_KEY` for parameter files that use `dcid`, and for the canopy data pull in [tree-canopy](https://github.com/ModelEarth/tree-canopy/blob/main/pipeline/canopy-process.py) (request one at [apikeys.datacommons.org](https://apikeys.datacommons.org/))
 - `ENABLE_GPU=true` to use cuML models when RAPIDS is installed (falls back to scikit-learn otherwise)
 
 When a key is missing, the CLI and the Flask `/run` endpoint explain where to get it.
