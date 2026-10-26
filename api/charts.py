@@ -17,7 +17,7 @@ import numpy as np
 
 DPI = 100
 TOP_FEATURES = 15
-NAME_CHARS = 45  # Long feature names (NAICS titles) are cut to this length
+NAME_CHARS = 50  # Long feature names (NAICS titles) are cut to this length, keeping " - Payroll - 2019"
 # Short names and fixed colors, so each model looks the same in every chart
 SHORT_NAMES = {"lr": "LR", "rfc": "RFC", "rbf": "RBF", "svm": "SVM", "mlp": "MLP", "xgboost": "XGBoost"}
 COLORS = {"lr": "#4c78a8", "rfc": "#59a14f", "rbf": "#e15759", "svm": "#f28e2b", "mlp": "#b07aa1", "xgboost": "#76b7b2"}
@@ -142,9 +142,20 @@ def training_times(plt, results, y_true, label):
     return fig
 
 
+def _short_name(name):
+    """A feature name cut to NAME_CHARS. Industry names lose the end of the industry, not the measure after " - "."""
+    if len(name) <= NAME_CHARS:
+        return name
+    head, sep, tail = name.partition(" - ")
+    room = NAME_CHARS - len(sep + tail) - 1
+    if sep and room >= 10:
+        return head[:room].rstrip(" ,") + "…" + sep + tail
+    return name[:NAME_CHARS - 1] + "…"
+
+
 def feature_importance(plt, key, title, df, label):
     top = df.head(TOP_FEATURES).iloc[::-1]
-    names = [str(f) if len(str(f)) <= NAME_CHARS else str(f)[:NAME_CHARS - 1] + "…" for f in top["Feature"]]
+    names = [_short_name(str(f)) for f in top["Feature"]]
     fig, ax = plt.subplots(figsize=(9, 0.35 * len(top) + 1.5))
     ax.barh(names, top["Importance"], color=_color(key))
     method = df.attrs.get("method", "")

@@ -40,7 +40,7 @@ def test_train_models_and_report_columns(tmp_path):
     assert list(table.columns) == rm.REPORT_COLUMNS
     imp = rm.feature_importances(results, list(X.columns))
     assert set(imp) == {"rfc", "lr", "xgboost"}
-    assert list(imp["xgboost"].columns) == ["Feature", "Importance"]
+    assert list(imp["xgboost"].columns) == ["Feature", "NAICS", "Importance"]
 
 
 def test_join_aliases_fips_padding_and_index_column(monkeypatch):
@@ -55,12 +55,17 @@ def test_join_aliases_fips_padding_and_index_column(monkeypatch):
     assert list(X.columns) == ["Emp-11"] and list(y) == [1, 0]
 
 
-def test_naics_name_keeps_prefix_and_year(monkeypatch):
-    monkeypatch.setitem(rm._NAICS_NAMES, 2, {"11": "Agriculture"})
+def test_naics_name_industry_first_with_code_column(monkeypatch):
+    monkeypatch.setitem(rm._NAICS_NAMES, 2, {"11": "Agriculture", "31": "Manufacturing", "32": "Manufacturing"})
     monkeypatch.setitem(rm._NAICS_NAMES, 6, {"454310": "Fuel Dealers"})
-    assert rm.naics_name("Emp-11") == "Emp-11-Agriculture"
-    assert rm.naics_name("Pay-454310-2019") == "Pay-454310-Fuel Dealers-2019"
-    assert rm.naics_name("Km2") == "Km2"
+    assert rm.naics_name("Est-11") == "Agriculture - Establishments"
+    assert rm.naics_name("Emp-32") == "Manufacturing (NAICS 32) - Employees"
+    assert rm.naics_name("Pay-454310-2019") == "Fuel Dealers - Payroll - 2019"
+    assert rm.naics_name("Km2") == "Km2" and rm.naics_code("Km2") == "" and rm.naics_code("Emp-454310-2019") == "454310"
+    X, y = _data()
+    results = rm.train_models(X[:90], y[:90], X[90:], y[90:], ["rfc"], n_iter=2)
+    df = rm.feature_importances(results, list(X.columns))["rfc"].set_index("NAICS")
+    assert df.loc["454310", "Feature"] == "Fuel Dealers - Employees" and df.loc["11", "Feature"] == "Agriculture - Payroll"
 
 
 def test_missing_key_has_guidance(monkeypatch):
@@ -495,6 +500,8 @@ def test_run_pipeline_writes_charts_and_lists_failed_models(tmp_path, monkeypatc
     for name in ["metrics_dashboard.png", "metrics_comparison.png", "roc_curves_comparison.png", "confusion_matrices.png",
                  "training_time_comparison.png"] + [f"feature_importance_{k}.png" for k in ("lr", "rfc", "svm", "mlp", "xgboost")]:
         assert name in listed and (tmp_path / "r" / name).read_bytes()[:4] == b"\x89PNG"
+    for key in ("lr", "rfc", "svm", "mlp", "xgboost"):
+        assert f"feature_importance_{key}.csv" in listed
     readme = (tmp_path / "r" / "README.md").read_text(encoding="utf-8")
     assert "Random Bits Forest: The Random Bits Forest binary runs on Linux only" in readme
     assert "charts show the run with SMOTE" in readme
@@ -547,7 +554,7 @@ def test_rbf_runs_once_per_pass_and_reaches_the_charts(tmp_path, monkeypatch):
     # Permutation importance stacks every shuffled copy into one more run, and finds the column it scores by
     importances = rm.feature_importances(results, list(X.columns), X_test=X[90:], y_test=y[90:])
     assert calls.read_text().count("run") == 3
-    assert importances["rbf"].attrs["method"] == "permutation" and importances["rbf"]["Feature"][0].startswith(X.columns[0])
+    assert importances["rbf"].attrs["method"] == "permutation" and importances["rbf"]["NAICS"][0] == "454310"
     from charts import write_charts
     written = write_charts(str(tmp_path), results, y[90:], importances)
     assert written == ["metrics_dashboard.png", "metrics_comparison.png", "roc_curves_comparison.png",

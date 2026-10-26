@@ -21,6 +21,7 @@ Linked from [ModelEarth/projects #63](https://github.com/ModelEarth/projects/iss
 | Run IDs (below): `/run?stream=1` sends the run ID at once and keep-alive lines; `GET /run/<run_id>` for a dropped connection | 2026-10-26 |
 | Feature importance options: RBF's chart as a checkbox in its Parameters, and `importance` checkboxes (prescreen, time budget) for SVM and MLP charts on more than 200 features | 2026-10-26 |
 | `metrics_comparison.png` (six metrics, 3 x 2); report folders named after the preset (`2026/eye-blinks-all-six-models-{date-time}`); a Rerun Report button on each report opens Run Models with its parameters.yaml and a link back | 2026-10-26 |
+| `feature_importance_{model}.csv` for every charted model (rbf when checked), industry features named industry first ("Mining, Quarrying, Oil and Gas Extraction - Establishments") with a NAICS column | 2026-10-26 |
 
 ## Report charts
 

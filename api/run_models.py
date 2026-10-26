@@ -9,7 +9,7 @@ pushes to github.com/modelearth/reports:
       README.md (what ran, and why any model wasn't trained), index.html, files.json, parameters.yaml, model-options.csv
       model_performance_report_no_smote.csv
       model_performance_report_smote.csv
-      feature_importance_xgboost.csv
+      feature_importance_{model}.csv (Feature, NAICS for industry features, Importance)
       metrics_dashboard.png, metrics_comparison.png, roc_curves_comparison.png, confusion_matrices.png,
       training_time_comparison.png, feature_importance_{model}.png (api/charts.py)
 
@@ -958,25 +958,42 @@ def _naics_table(digits):
                 df = pd.read_csv(NAICS2_NAMES_URL, dtype=str)
             df.columns = ["code", "name"]
             df["name"] = df["name"].str.strip()
-            _NAICS_NAMES[digits] = df.set_index("code")["name"].to_dict()
+            names = df.set_index("code")["name"].to_dict()
+            if digits == 2:
+                names.setdefault("99", "Industries not classified")  # County Business Patterns' name for 99
+            _NAICS_NAMES[digits] = names
         except Exception as exc:
             print(f"  [WARN] NAICS{digits} names unavailable ({exc}); keeping raw codes.")
             _NAICS_NAMES[digits] = {}
     return _NAICS_NAMES[digits]
 
 
-def naics_name(feature):
-    """Emp-11 -> 'Emp-11-Agriculture, Forestry, Fishing and Hunting'; Emp-454310-2019 -> 'Emp-454310-Fuel Dealers-2019'.
+NAICS_FEATURE = re.compile(r"^(Emp|Est|Pay)-(\d{2}|\d{6})(?:-(\d{4}))?$")  # Emp-11, Pay-454310-2019
+NAICS_MEASURES = {"Emp": "Employees", "Est": "Establishments", "Pay": "Payroll"}
 
-    Prefix (Emp/Est/Pay) and year are kept so names stay unique and recoverable."""
-    match = re.match(r"^(Emp|Est|Pay)-(\d{2}|\d{6})(?:-(\d{4}))?$", str(feature))
+
+def naics_code(feature):
+    """The NAICS industry code in a feature name ("21" for Est-21), or "" for other features."""
+    match = NAICS_FEATURE.match(str(feature))
+    return match.group(2) if match else ""
+
+
+def naics_name(feature):
+    """Industry first: Est-21 -> 'Mining, Quarrying, Oil and Gas Extraction - Establishments';
+    Pay-454310-2019 -> 'Fuel Dealers - Payroll - 2019'; Emp-31 -> 'Manufacturing (NAICS 31) - Employees', since 32 and 33
+    are also Manufacturing. The code itself goes in the NAICS column (naics_code).
+    A feature that isn't a NAICS code, or whose code has no name, is kept as is."""
+    match = NAICS_FEATURE.match(str(feature))
     if not match:
         return feature
     prefix, code, year = match.groups()
-    name = _naics_table(len(code)).get(code)
+    table = _naics_table(len(code))
+    name = table.get(code)
     if not name:
         return feature
-    return f"{prefix}-{code}-{name}" + (f"-{year}" if year else "")
+    if list(table.values()).count(name) > 1:  # Manufacturing is 31, 32 and 33, so keep the names apart
+        name += f" (NAICS {code})"
+    return f"{name} - {NAICS_MEASURES[prefix]}" + (f" - {year}" if year else "")
 
 
 PERMUTATION_MODELS = ("svm", "mlp", "rbf")  # No built-in importances; rbf only with feature_importance: true
@@ -989,7 +1006,7 @@ RBF_PERMUTATION_ROWS = 100_000  # rbf trains again on each call, so all its shuf
 
 def feature_importances(results, feature_names, map_naics=True, X_test=None, y_test=None, X_train=None,
                         y_train=None, options=None, notes=None):
-    """{model_key: DataFrame(Feature, Importance)} for models that expose importances, plus svm, mlp and rbf by
+    """{model_key: DataFrame(Feature, NAICS when some features are industries, Importance)} for models that expose importances, plus svm, mlp and rbf by
     permutation on the test rows when X_test and y_test are given (DataFrame.attrs["method"] is "permutation";
     rbf only when its feature_importance hyperparameter is true).
     options: the YAML's importance section (prescreen, time_budget, budget_seconds) for data wider than
@@ -1021,9 +1038,14 @@ def feature_importances(results, feature_names, map_naics=True, X_test=None, y_t
             method = "permutation"
         else:
             continue
-        df = pd.DataFrame({"Feature": list(feature_names), "Importance": values}).dropna()  # NaN: not shuffled
+        columns = {"Feature": list(feature_names)}
         if map_naics:
-            df["Feature"] = df["Feature"].map(naics_name)
+            codes = [naics_code(f) for f in feature_names]
+            if any(codes):
+                columns["NAICS"] = codes  # The industry code, with the industry's name in Feature
+            columns["Feature"] = [naics_name(f) for f in feature_names]
+        columns["Importance"] = values
+        df = pd.DataFrame(columns).dropna(subset=["Importance"])  # NaN: not shuffled
         df = df.sort_values("Importance", ascending=False).reset_index(drop=True)
         df.attrs["method"] = method
         df.attrs["note"] = note
@@ -1235,8 +1257,8 @@ def write_reports(report_dir, params, results_no_smote, results_smote, importanc
         results_table(results_no_smote).to_csv(os.path.join(report_dir, "model_performance_report_no_smote.csv"), index=False)
     if results_smote:
         results_table(results_smote).to_csv(os.path.join(report_dir, "model_performance_report_smote.csv"), index=False)
-    if "xgboost" in importances:
-        importances["xgboost"].to_csv(os.path.join(report_dir, "feature_importance_xgboost.csv"), index=False)
+    for key, df in importances.items():  # rbf is here only when its feature_importance is checked
+        df.to_csv(os.path.join(report_dir, f"feature_importance_{key}.csv"), index=False)
     print(f"\n[REPORT] {len(os.listdir(report_dir))} files in {os.path.abspath(report_dir)}")
 
 
